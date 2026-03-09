@@ -1,0 +1,322 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CampaÃ±as Activas â€“ Tailwind</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Bitrix24 JS API (app local dentro del portal) -->
+  <script src="//api.bitrix24.com/api/v1/"></script>
+
+  <!-- Icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+</head>
+
+<body class="bg-[#f4f8ff] min-h-screen text-gray-800">
+
+  <section id="view-login" class="min-h-screen w-full bg-white hidden">
+    <div class="min-h-screen grid grid-cols-1 md:grid-cols-2">
+      <!-- LEFT: Form -->
+      <div class="flex items-center justify-center px-6 py-12 bg-white">
+        <div class="w-full max-w-sm">
+          <!-- Logo -->
+          <div class="mb-8 flex justify-center">
+            <img src="https://viajesyviajes.com/wp-content/uploads/2017/08/logo-vyv-600x125.png" alt="Viajes y Viajes"
+              class="h-10 w-auto object-contain" loading="eager" referrerpolicy="no-referrer" />
+          </div>
+
+
+          <h2 class="text-2xl font-bold text-slate-900 text-center ">Bienvenido Asesor </h2>
+
+
+          <div class="mt-8 space-y-4">
+            <div>
+
+              <input id="in-asesor" type="text" inputmode="numeric" autocomplete="off"
+                placeholder="Ingrese nÃºmero de asesor" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3
+                     text-slate-800 placeholder:text-slate-400
+                     focus:outline-none focus:ring-4 focus:ring-[#1d73ea]/20 focus:border-[#1d73ea]" />
+              <p id="in-asesor-error" class="mt-2 text-sm text-rose-600 hidden"></p>
+            </div>
+
+            <button id="btn-login" class="w-full rounded-xl bg-[#1d73ea] px-2 py-3 font-semibold text-white
+                   hover:bg-[#175fc0] active:scale-[0.99]
+                   shadow-lg shadow-[#1d73ea]/20 focus:outline-none focus:ring-4 focus:ring-[#1d73ea]/25">
+              Iniciar
+            </button>
+
+            <div class=" text-xs text-slate-400">
+              Â© <span id="login-year"></span> Viajes y Viajes Workflow S.A.S
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Image -->
+      <div class="relative hidden md:block">
+        <!-- Background image -->
+        <div class="absolute inset-0 bg-cover bg-center"
+          style="background-image:url('https://i.pinimg.com/736x/e1/c2/26/e1c2264ee23a7ed95aa8d33b3d660370.jpg');"
+          </div>
+
+          <!-- Overlay -->
+          <div class="absolute inset-0 bg-gradient-to-tr from-slate-900/30 via-slate-900/10 to-transparent"></div>
+
+          <!-- Center badge -->
+          <div class="absolute inset-0 flex items-center justify-center">
+
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end mb-6">
+        <button id="btn-guardar-contacto"
+          class="px-4 py-2 rounded-xl bg-[#00EFE8] text-white font-semibold hover:brightness-110">
+          Actualizar datos del cliente
+        </button>
+      </div>
+  </section>
+
+  <script>
+    // Solo para el aÃ±o del footer
+    const y = document.getElementById("login-year");
+    if (y) y.textContent = new Date().getFullYear();
+  </script>
+
+
+
+  <!-- ========= LISTA / HOME ========= -->
+  <section id="view-home" class="">
+    <header class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <h2 class="text-xl font-bold">Campanas Activas</h2>
+      <div class="mt-3 flex items-center gap-3">
+        <div class="relative flex-1">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-400"></i>
+          <input id="buscar" class="w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200"
+            placeholder="Buscar cliente / negocio..." />
+        </div>
+        <button id="btn-filtros"
+          class="px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center gap-2">
+          <i class="fa-solid fa-sliders"></i><span>Filtros</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 pb-10">
+      <div class="overflow-hidden bg-white shadow-xl rounded-2xl">
+        <table class="min-w-full">
+          <thead class="bg-[#e9f0ff]">
+            <tr class="text-left text-sm text-gray-700">
+              <th class="px-5 py-3 font-semibold">Nombre / TÃ­tulo</th>
+              <th class="px-5 py-3 font-semibold">CampaÃ±a</th>
+              <th class="px-5 py-3 font-semibold">Estado</th>
+              <th class="px-5 py-3 font-semibold text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-clientes" class="text-sm"></tbody>
+        </table>
+      </div>
+    </main>
+  </section>
+
+  <!-- ========= DRAWER FILTROS ========= -->
+  <aside id="drawer"
+    class="fixed inset-y-0 right-0 w-full sm:w-[380px] bg-white shadow-2xl rounded-l-2xl p-6 z-50 transform transition-transform duration-300 translate-x-full hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-semibold">Filtros de Campanas</h3>
+      <button id="btn-close-drawer" class="text-gray-500 hover:text-gray-800">
+        <i class="fa-solid fa-xmark text-xl"></i>
+      </button>
+    </div>
+
+    <div class="mb-5">
+      <p class="text-sm font-semibold mb-2">
+        <i class="fa-solid fa-globe text-[#1d73ea] mr-2"></i>Campanas
+      </p>
+      <div id="ms-campanias" class="relative" data-ms>
+        <!-- Trigger -->
+        <button type="button" data-ms-trigger
+          class="w-full flex items-center justify-between gap-2 border border-slate-200 rounded-xl bg-white py-2.5 px-4 text-sm focus:ring-2 focus:ring-[#1d73ea]/30 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed">
+          <span data-ms-label class="text-slate-500">Selecciona opciones</span>
+          <i data-ms-chevron class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform"></i>
+        </button>
+
+        <!-- Panel -->
+        <div data-ms-panel
+          class="absolute mt-2 w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-3 hidden z-50">
+          <div class="relative mb-3">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+            <input data-ms-search type="text" placeholder="Buscar..."
+              class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#1d73ea]/30 outline-none" />
+          </div>
+
+          <div data-ms-options class="max-h-56 overflow-auto pr-1 space-y-1"></div>
+
+          <div class="flex items-center justify-between pt-3 border-t border-slate-100 text-sm">
+            <button type="button" data-ms-all class="text-slate-500 hover:text-slate-700">Marcar todo</button>
+
+            <div class="flex items-center gap-4">
+              <button type="button" data-ms-clear class="text-slate-500 hover:text-slate-700">Limpiar</button>
+              <button type="button" data-ms-close class="text-[#1d73ea] font-semibold">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-5">
+        <p class="text-sm font-semibold mb-2">
+          <i class="fa-solid fa-user mr-2 text-[#1d73ea]"></i>Asesores
+        </p>
+
+        <div id="ms-asesores" class="relative" data-ms>
+          <!-- Trigger -->
+          <button type="button" data-ms-trigger
+            class="w-full flex items-center justify-between gap-2 border border-slate-200 rounded-xl bg-white py-2.5 px-4 text-sm focus:ring-2 focus:ring-[#1d73ea]/30 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed">
+            <span data-ms-label class="text-slate-500">Selecciona asesores</span>
+            <i data-ms-chevron class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform"></i>
+          </button>
+
+          <!-- Panel -->
+          <div data-ms-panel
+            class="absolute mt-2 w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-3 hidden z-50">
+            <div class="relative mb-3">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+              <input data-ms-search type="text" placeholder="Buscar asesor..."
+                class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#1d73ea]/30 outline-none" />
+            </div>
+
+            <div data-ms-options class="max-h-56 overflow-auto pr-1 space-y-1"></div>
+
+            <div class="flex items-center justify-between pt-3 border-t border-slate-100 text-sm">
+              <button type="button" data-ms-all class="text-slate-500 hover:text-slate-700">Marcar todo</button>
+
+              <div class="flex items-center gap-4">
+                <button type="button" data-ms-clear class="text-slate-500 hover:text-slate-700">Limpiar</button>
+                <button type="button" data-ms-close class="text-[#1d73ea] font-semibold">Cerrar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <p class="text-sm font-semibold mb-2">
+          <i class="fa-solid fa-calendar-days mr-2 text-[#1d73ea]"></i>Fechas
+        </p>
+        <input id="fx-inicio" type="date" class="w-full rounded-xl border border-gray-200 mb-2" />
+        <input id="fx-fin" type="date" class="w-full rounded-xl border border-gray-200" />
+      </div>
+
+      <div class="flex items-center justify-between">
+        <button id="btn-cancelar-filtros" class="px-3 py-2 rounded-xl border border-gray-200 bg-white">
+          Cancelar
+        </button>
+        <button id="btn-aplicar-filtros"
+          class="px-4 py-2 rounded-xl text-white font-semibold bg-[#1d73ea] hover:brightness-110">
+          Aplicar
+        </button>
+      </div>
+  </aside>
+
+  <!-- ========= DETALLE CLIENTE ========= -->
+  <section id="view-detalle" class="hidden">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+      <button id="btn-back" class="text-[#1d73ea] mb-4 inline-flex items-center gap-2">
+        <i class="fa-solid fa-arrow-left"></i><span>Volver</span>
+      </button>
+
+      <h2 id="dtl-nombre" class="text-2xl font-extrabold text-center mb-6">
+        Nombre
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <input id="dtl-person" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Nombre / TÃ­tulo" />
+        <input id="dtl-email" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Email (si existe)" />
+        <input id="dtl-phone" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="TelÃ©fono (si existe)" />
+        <input id="dtl-place" class="rounded-xl border border-gray-200 px-3 py-2"
+          placeholder="Ciudad / Lugar (si existe)" />
+      </div>
+
+      <h3 class="text-lg font-bold mb-3">Campanas Activas</h3>
+      <div id="dtl-cards" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+
+
+  </section>
+
+  <!-- ========= MODAL ========= -->
+  <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+    <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
+      <div class="bg-gradient-to-r from-[#1d73ea] to-[#5ea3ff] text-white p-5">
+        <div class="flex items-center justify-between">
+          <h4 id="md-titulo" class="text-lg font-semibold">Nombre campana</h4>
+          <button id="md-close" class="opacity-90 hover:opacity-100">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 space-y-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-semibold mb-1">Fecha inicio</label>
+            <input id="md-inicio" type="date" class="w-full rounded-xl border border-gray-200 px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">Fecha final</label>
+            <input id="md-fin" type="date" class="w-full rounded-xl border border-gray-200 px-3 py-2" />
+          </div>
+        </div>
+
+        <div>
+          <p class="text-sm font-semibold mb-2">Estado del cliente</p>
+          <div class="flex flex-wrap gap-2">
+            <button data-estado="interesado" class="px-3 py-1.5 rounded-full bg-[#e6f7ef] text-[#1a7f4b] text-sm">
+              Interesado
+            </button>
+            <button data-estado="no_interesado" class="px-3 py-1.5 rounded-full bg-[#ffecef] text-[#b91937] text-sm">
+              No interesado
+            </button>
+            <button data-estado="inseguro" class="px-3 py-1.5 rounded-full bg-[#fff8e6] text-[#a56a00] text-sm">
+              Inseguro
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-sm font-semibold mb-2">Notas complementarias</p>
+          <textarea id="md-notas" rows="4" class="w-full rounded-xl border border-gray-200 px-3 py-2"
+            placeholder="Escribe tus observaciones..."></textarea>
+        </div>
+      </div>
+
+      <div class="p-5 border-t flex items-center justify-between">
+        <button id="md-cancelar" class="px-3 py-2 rounded-xl border border-gray-200 bg-white">
+          Cancelar
+        </button>
+        <button id="md-guardar" class="px-4 py-2 rounded-xl text-white font-semibold bg-[#1d73ea] hover:brightness-110">
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Loader global -->
+  <div id="global-loader" class="fixed inset-0 z-50 hidden items-center justify-center bg-white/80 backdrop-blur-sm">
+    <div class="flex flex-col items-center gap-4">
+      <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+      <p class="text-blue-700 font-semibold text-sm">
+        Cargando informacion del asesor
+      </p>
+    </div>
+  </div>
+
+  <script src="js.js"></script>
+</body>
+
+</html>
