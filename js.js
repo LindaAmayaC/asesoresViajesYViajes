@@ -1,4 +1,5 @@
-﻿/*************************************************
+
+/*************************************************
  * 0) Estado global
  *************************************************/
 let STATE = {
@@ -11,11 +12,10 @@ let STATE = {
     fin: "",
   },
   search: "",
-  rows: [], // filas para la tabla (negocios)
+  rows: [], // filas para la tabla (contactos)
   campanasDisponibles: [],
   asesoresDisponibles: [],
 };
-STATE.cardVisualStatus = loadCardStatusMap();
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
 
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
@@ -31,11 +31,34 @@ function loadCardStatusMap() {
 function saveCardStatusMap(map) {
   localStorage.setItem(LS_CARD_STATUS_KEY, JSON.stringify(map || {}));
 }
-function setVisualCompleted(dealId) {
-  const map = loadCardStatusMap();
-  map[String(dealId)] = "Completado";
-  STATE.cardVisualStatus = map;
-  saveCardStatusMap(map);
+
+function getCardStatusKey(contactId, campana) {
+  return `${String(contactId)}::${String(campana || "").trim().toLowerCase()}`;
+}
+
+function showToast(message = "", type = "success") {
+  let toast = document.getElementById("vyv-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "vyv-toast";
+    toast.className = "fixed top-5 right-5 z-[9999] hidden min-w-[280px] max-w-[420px] rounded-2xl px-4 py-3 shadow-2xl border text-sm font-medium transition-all";
+    document.body.appendChild(toast);
+  }
+
+  const palette =
+    type === "error"
+      ? "bg-rose-50 border-rose-200 text-rose-700"
+      : "bg-emerald-50 border-emerald-200 text-emerald-700";
+
+  toast.className = `fixed top-5 right-5 z-[9999] min-w-[280px] max-w-[420px] rounded-2xl px-4 py-3 shadow-2xl border text-sm font-medium transition-all ${palette}`;
+  toast.textContent = message;
+
+  clearTimeout(window.__vyvToastTimer);
+  toast.classList.remove("hidden");
+
+  window.__vyvToastTimer = setTimeout(() => {
+    toast.classList.add("hidden");
+  }, 2600);
 }
 
 /*************************************************
@@ -43,8 +66,8 @@ function setVisualCompleted(dealId) {
  *************************************************/
 const qs = (s, ctx = document) => ctx.querySelector(s);
 const qsa = (s, ctx = document) => [...ctx.querySelectorAll(s)];
-const showById = (id) => qs(id).classList.remove("hidden");
-const hideById = (id) => qs(id).classList.add("hidden");
+const showById = (id) => qs(id)?.classList.remove("hidden");
+const hideById = (id) => qs(id)?.classList.add("hidden");
 
 const chipEstado = (texto) => {
   const base =
@@ -57,8 +80,7 @@ const chipEstado = (texto) => {
   const raw = String(texto).trim();
   const t = raw.toLowerCase();
 
-  // OK Estados de CAMPANA
-  if (t.includes("activa")) {
+  if (t.includes("activo") || t.includes("activa")) {
     return `<span class="${base} bg-emerald-100 text-emerald-700">${raw}</span>`;
   }
   if (t.includes("finalizada") || t.includes("finalizado")) {
@@ -66,17 +88,6 @@ const chipEstado = (texto) => {
   }
   if (t.includes("cancelada") || t.includes("cancelado")) {
     return `<span class="${base} bg-rose-100 text-rose-700">${raw}</span>`;
-  }
-
-  // OK Estados del CLIENTE (se mantienen)
-  if (t.includes("interesado") && !t.includes("no")) {
-    return `<span class="${base} bg-[#e6f7ef] text-[#1a7f4b]">${raw}</span>`;
-  }
-  if (t.includes("no interesado") || t.includes("no_interesado")) {
-    return `<span class="${base} bg-[#ffecef] text-[#b91937]">${raw}</span>`;
-  }
-  if (t.includes("inseguro") || t.includes("seguimiento")) {
-    return `<span class="${base} bg-[#fff8e6] text-[#a56a00]">${raw}</span>`;
   }
 
   return `<span class="${base} bg-gray-100 text-gray-700">${raw}</span>`;
@@ -97,7 +108,6 @@ function bxList(method, params = {}) {
       const data = result.data() || [];
       all = all.concat(data);
 
-      // Si hay mas paginas, continuar
       if (result.more()) {
         result.next();
       } else {
@@ -107,24 +117,11 @@ function bxList(method, params = {}) {
   });
 }
 
-// === Diccionario de municipio (UF lista) ===
+// === Diccionarios de listas UF ===
 let MUNICIPIO_ENUM = {}; // ID -> Texto
 let MUNICIPIO_ENUM_BY_TEXT = {}; // texto normalizado -> ID
 let CAMPANA_ENUM = {}; // ID -> Texto (UF_CRM_1768059328177)
 let CAMPANA_ENUM_BY_TEXT = {}; // texto normalizado -> ID
-let PRODUCT_CAMPANA_BY_NAME = null; // cache: nombre lower -> { id, name }
-
-function statusColorClass(estado) {
-  const s = String(estado || "").toLowerCase();
-
-  // Ajusta textos a los tuyos reales:
-  if (s.includes("completado")) return "text-green-600";
-  if (s.includes("por completar") || s.includes("pendiente"))
-    return "text-orange-500";
-  if (s.includes("cancelado")) return "text-red-500";
-
-  return "text-slate-500"; // default
-}
 
 function loadMunicipioEnum() {
   return new Promise((resolve, reject) => {
@@ -133,7 +130,7 @@ function loadMunicipioEnum() {
         reject(result.error());
         return;
       }
-      const fields = result.data();
+      const fields = result.data() || {};
       const f = fields["UF_CRM_1722975246"];
       if (!f || !f.items) {
         resolve();
@@ -157,17 +154,12 @@ function loadMunicipioEnum() {
 
 function loadCampanaEnum() {
   return new Promise((resolve, reject) => {
-    if (Object.keys(CAMPANA_ENUM).length) {
-      resolve();
-      return;
-    }
-
     BX24.callMethod("crm.contact.fields", {}, function (result) {
       if (result.error()) {
         reject(result.error());
         return;
       }
-      const fields = result.data();
+      const fields = result.data() || {};
       const f = fields["UF_CRM_1768059328177"];
       if (!f || !f.items) {
         resolve();
@@ -189,182 +181,106 @@ function loadCampanaEnum() {
   });
 }
 
-async function loadDealsFromBitrix() {
-  const filter = {
-    CATEGORY_ID: 10,
-    STAGE_ID: "C10:NEW",
-  };
+function normalizeMultiValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).map((v) => String(v));
+  if (value === null || value === undefined || value === "") return [];
+  return [String(value)];
+}
 
-  const params = {
-    filter,
+function campanaIdsToTexts(values) {
+  return normalizeMultiValue(values)
+    .map((id) => CAMPANA_ENUM[String(id)] || String(id))
+    .filter(Boolean);
+}
+
+async function loadContactosFromBitrix() {
+  const contacts = await bxList("crm.contact.list", {
+    filter: {
+      "!UF_CRM_1768059328177": false,
+    },
     select: [
       "ID",
-      "TITLE",
+      "NAME",
+      "LAST_NAME",
+      "SECOND_NAME",
       "ASSIGNED_BY_ID",
-      "CONTACT_ID",
-      "STAGE_ID",
-      "DATE_CREATE",
-      // nombre de campana
-      "UF_CRM_1759207518343",
-      // estado de cliente
-      "UF_CRM_1764401898591",
-      "UF_CRM_1764444016968",
+      "UF_CRM_1722975246",
+      "UF_CRM_1768059328177",
+      "PHONE",
+      "EMAIL",
     ],
-  };
+  });
 
-  // 1) Traemos los deals (solo primera pagina)
-  const deals = await bxList("crm.deal.list", params);
+  STATE.rows = contacts.map((c) => {
+    const id = String(c.ID || "");
+    const nombre = [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
+    const phoneArr = Array.isArray(c.PHONE) ? c.PHONE : [];
+    const emailArr = Array.isArray(c.EMAIL) ? c.EMAIL : [];
+    const phone = phoneArr[0]?.VALUE || "";
+    const email = emailArr[0]?.VALUE || "";
+    const municipioId = c.UF_CRM_1722975246 || "";
+    const campanaIds = normalizeMultiValue(c.UF_CRM_1768059328177);
+    const campanaTexts = campanaIdsToTexts(campanaIds);
 
-  // 2) Sacamos los CONTACT_ID unicos
-  const contactIds = [
-    ...new Set(
-      deals
-        .map((d) => d.CONTACT_ID)
-        .filter((id) => id && String(id).trim() !== "")
-        .map((id) => String(id)),
-    ),
-  ];
-
-  // 3) Mapa de contactos: ID -> datos completos
-  const contactMap = {};
-
-  if (contactIds.length) {
-    const contacts = await bxList("crm.contact.list", {
-      filter: { ID: contactIds },
-      select: [
-        "ID",
-        "NAME",
-        "LAST_NAME",
-        "SECOND_NAME",
-        "UF_CRM_1722975246", // MUNICIPIO
-        "PHONE", // TELEFONOS
-        "EMAIL", // EMAILS
-      ],
-    });
-
-    contacts.forEach((c) => {
-      const id = String(c.ID);
-
-      // Campos basicos
-      const name = c.NAME || "";
-      const last = c.LAST_NAME || "";
-
-      // PHONE y EMAIL -> vienen como array [{VALUE:""}]
-      const phoneArr = Array.isArray(c.PHONE) ? c.PHONE : [];
-      const emailArr = Array.isArray(c.EMAIL) ? c.EMAIL : [];
-
-      const phone = phoneArr[0]?.VALUE || "";
-      const email = emailArr[0]?.VALUE || "";
-
-      // MUNICIPIO
-      const municipio = c.UF_CRM_1722975246 || "";
-
-      // Guardar todo en mapa
-      contactMap[id] = {
-        NAME: name,
-        LAST_NAME: last,
-        SECOND_NAME: c.SECOND_NAME || "",
-        phone,
-        email,
-        municipio,
-      };
-    });
-  }
-  // 3.5) Precargar estado de campana por producto (PROPERTY_358)
-  const productIds = [
-    ...new Set(
-      deals
-        .map((d) => d.UF_CRM_1764444016968)
-        .filter(Boolean)
-        .map((x) => String(x)),
-    ),
-  ];
-
-  const productEstadoById = {};
-  await Promise.all(
-    productIds.map(async (pid) => {
-      try {
-        const info = await fetchProductInfo(pid); // usa PROPERTY_358.value
-        productEstadoById[pid] = info?.estado || "-";
-      } catch {
-        productEstadoById[pid] = "-";
-      }
-    }),
-  );
-
-  // 4) Mapeamos a la estructura de la tabla
-
-  STATE.rows = deals.map((d) => {
-    const contactId = d.CONTACT_ID ? String(d.CONTACT_ID) : "";
-    let nombreCliente = d.TITLE || `Negocio #${d.ID}`;
-    let email = "";
-    let phone = "";
-    let municipioId = "";
-
-    if (contactId && contactMap[contactId]) {
-      const c = contactMap[contactId];
-      nombreCliente = [c.NAME, c.LAST_NAME].filter(Boolean).join(" ");
-      email = c.email || "";
-      phone = c.phone || "";
-      municipioId = c.municipio || "";
-    }
-
-    const campanaNombre = d.UF_CRM_1759207518343 || "";
-    const estadoValor = d.UF_CRM_1764401898591 || "";
-
-    const asesor = d.ASSIGNED_BY_ID || "";
-
-    //  AQUI: guardamos el UF tal cual (o null si viene vacio)
-    const productId = d.UF_CRM_1764444016968
-      ? String(d.UF_CRM_1764444016968)
-      : null;
-
-    const municipioTxt = MUNICIPIO_ENUM[String(municipioId)] || "";
-    const estadoCampanaFila = productId
-      ? productEstadoById[productId] || "-"
-      : "-";
     return {
-      id: d.ID,
-      contactId,
-      nombre: nombreCliente,
-      asesor,
-      campanaFila: campanaNombre || "",
-      estadoFila: estadoCampanaFila,
+      id,
+      contactId: id,
+      nombre,
+      asesor: String(c.ASSIGNED_BY_ID || ""),
       email,
       phone,
-      place: municipioTxt,
+      place: MUNICIPIO_ENUM[String(municipioId)] || "",
       municipioId,
-      productId,
-      estadoCliente: estadoValor || "",
+      campanaIds,
+      campanaTexts,
+      campanaFila: campanaTexts[0] || "-",
+      estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
     };
   });
 
   STATE.campanasDisponibles = [
-    ...new Set(STATE.rows.map((r) => r.campanaFila).filter(Boolean)),
-  ];
+    ...new Set(STATE.rows.flatMap((r) => r.campanaTexts).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+
   STATE.asesoresDisponibles = [
     ...new Set(STATE.rows.map((r) => r.asesor).filter(Boolean)),
-  ];
+  ].sort((a, b) => a.localeCompare(b));
 }
+function fetchProductoCampanaByNombre(nombreCampana) {
+  return new Promise((resolve, reject) => {
+    if (!nombreCampana) {
+      resolve(null);
+      return;
+    }
 
-async function fetchActiveDealsByContact(contactId) {
-  if (!contactId) return [];
-  return await bxList("crm.deal.list", {
-    filter: {
-      CATEGORY_ID: 10,
-      STAGE_ID: "C10:NEW",
-      CONTACT_ID: String(contactId),
-    },
-    select: [
-      "ID",
-      "TITLE",
-      "CONTACT_ID",
-      "ASSIGNED_BY_ID",
-      "UF_CRM_1759207518343",
-      "UF_CRM_1764401898591",
-      "UF_CRM_68911F4662EF3",
-      "UF_CRM_1764444016968",
-    ],
+    BX24.callMethod(
+      "crm.product.list",
+      {
+        filter: {
+          CATALOG_ID: 24,
+          SECTION_ID: 114,
+          NAME: nombreCampana,
+        },
+        select: [
+          "ID",
+          "NAME",
+          "CATALOG_ID",
+          "SECTION_ID",
+          "PROPERTY_356",
+          "PROPERTY_358",
+          "PROPERTY_360",
+        ],
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        const items = result.data() || [];
+        resolve(items[0] || null);
+      }
+    );
   });
 }
 
@@ -384,73 +300,6 @@ function fetchContactById(contactId) {
   });
 }
 
-function formatDateOnly(value) {
-  if (!value) return "";
-  return String(value).split(" ")[0].split("T")[0];
-}
-
-// === Helper: obtener info del producto desde crm.product.get ===
-function fetchProductInfo(productId) {
-  return new Promise((resolve, reject) => {
-    if (!productId) {
-      resolve(null);
-      return;
-    }
-
-    BX24.callMethod("crm.product.get", { id: productId }, function (result) {
-      if (result.error()) {
-        console.error("Error en crm.product.get:", result.error());
-        reject(result.error());
-        return;
-      }
-
-      const p = result.data();
-
-      if (!p) {
-        resolve(null);
-        return;
-      }
-
-      //  CAMPOS CORREGIDOS
-      const nombreProd = p.NAME || "Sin nombre";
-
-      //  PROPERTIES CORRECTAS
-      const propInicio = p.property360 || p.PROPERTY_360 || {};
-      const propEstado = p.property358 || p.PROPERTY_358 || {};
-      const propFin = p.property356 || p.PROPERTY_356 || {};
-
-      const fechaInicio = formatDateOnly(propInicio.value);
-      const estado = propEstado.value || "-";
-      const fechaFin = formatDateOnly(propFin.value);
-
-      resolve({
-        nombreProd,
-        fechaInicio,
-        estado,
-        fechaFin,
-      });
-    });
-  });
-}
-
-async function fetchProductsForCampanas() {
-  if (PRODUCT_CAMPANA_BY_NAME) return PRODUCT_CAMPANA_BY_NAME;
-
-  const products = await bxList("crm.product.list", {
-    filter: { CATALOG_ID: 24, SECTION_ID: 114 },
-    select: ["ID", "NAME"],
-  });
-
-  const map = {};
-  products.forEach((p) => {
-    const name = String(p.NAME || "").trim();
-    if (!name) return;
-    map[name.toLowerCase()] = { id: String(p.ID || ""), name };
-  });
-
-  PRODUCT_CAMPANA_BY_NAME = map;
-  return map;
-}
 function showGlobalLoader(text = "Cargando informacion...") {
   const loader = document.getElementById("global-loader");
   if (!loader) return;
@@ -506,6 +355,29 @@ async function validateAsesorSecondName(value) {
     return null;
   }
 }
+function getBitrixPropValue(prop) {
+  if (!prop) return "";
+  if (Array.isArray(prop)) {
+    return prop[0]?.value || prop[0]?.VALUE || "";
+  }
+  if (typeof prop === "object") {
+    return prop.value || prop.VALUE || "";
+  }
+  return String(prop || "");
+}
+
+function formatFechaBitrix(value) {
+  if (!value) return "-";
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return d.toLocaleDateString("es-CO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 
 /*************************************************
  * UI: MultiSelect estilo "Selecciona opciones"
@@ -531,7 +403,6 @@ function initMultiSelect(root, cfg = {}) {
     return null;
   }
 
-  // --- Render opciones ---
   optWrap.innerHTML = "";
   const rowEls = [];
 
@@ -574,7 +445,6 @@ function initMultiSelect(root, cfg = {}) {
       return;
     }
 
-    // Si es 1, mostramos el texto seleccionado; si son varios, mostramos el conteo
     if (count === 1) {
       const only = [...selected][0];
       const found = rowEls.find((r) => r.dataset.value === String(only));
@@ -614,7 +484,6 @@ function initMultiSelect(root, cfg = {}) {
     });
   }
 
-  // --- Eventos ---
   trigger.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -623,10 +492,7 @@ function initMultiSelect(root, cfg = {}) {
 
   panel.addEventListener("click", (e) => e.stopPropagation());
 
-  if (search) {
-    search.addEventListener("input", (e) => filter(e.target.value));
-  }
-
+  if (search) search.addEventListener("input", (e) => filter(e.target.value));
   if (btnClose) btnClose.addEventListener("click", close);
 
   if (btnClear) {
@@ -643,7 +509,6 @@ function initMultiSelect(root, cfg = {}) {
 
   if (btnAll) {
     btnAll.addEventListener("click", () => {
-      // Marca solo lo visible (si hay busqueda) para que sea mas util
       const visibles = rowEls.filter((r) => !r.classList.contains("hidden"));
       const target = visibles.length ? visibles : rowEls;
 
@@ -659,25 +524,17 @@ function initMultiSelect(root, cfg = {}) {
     });
   }
 
-  // Cerrar al hacer click fuera
   document.addEventListener("click", () => close());
-
-  // Cerrar con ESC
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();
   });
 
-  // Estado inicial
   updateLabel();
 
   return {
     open,
     close,
     getSelected: () => new Set(selected),
-    setOptions: (newOptions = []) => {
-      // si lo necesitas luego, lo podemos implementar
-      console.warn("setOptions aun no esta implementado", newOptions);
-    },
   };
 }
 
@@ -685,11 +542,9 @@ function initMultiSelect(root, cfg = {}) {
  * 3) Inicio (login + Bitrix init)
  *************************************************/
 document.addEventListener("DOMContentLoaded", () => {
-  // === Login desactivado temporalmente: entrar directo a HOME ===
   if (DISABLE_LOGIN) {
     (async () => {
       try {
-        // Cambiamos de vista
         hideById("#view-login");
         showById("#view-home");
 
@@ -702,7 +557,10 @@ document.addEventListener("DOMContentLoaded", () => {
           await loadMunicipioEnum();
 
           showGlobalLoader("Cargando campanas...");
-          await loadDealsFromBitrix();
+          await loadCampanaEnum();
+
+          showGlobalLoader("Cargando contactos...");
+          await loadContactosFromBitrix();
         } else {
           console.warn("BX24 no esta definido. Front sin datos reales.");
         }
@@ -727,9 +585,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
-  if (asesorInput) {
-    asesorInput.addEventListener("input", () => clearLoginError());
-  }
+  if (asesorInput) asesorInput.addEventListener("input", () => clearLoginError());
 
   btnLogin.addEventListener("click", async () => {
     const n = asesorInput?.value.trim() || "";
@@ -741,21 +597,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!window.BX24) {
       console.warn("BX24 no esta definido. Front sin datos reales.");
-      alert(
-        "No se encontro BX24. Estas viendo solo el front sin datos reales.",
-      );
+      alert("No se encontro BX24. Estas viendo solo el front sin datos reales.");
 
       STATE.asesorActual = n;
       STATE.asesorId = "";
       showGlobalLoader("Cargando informacion...");
-
-      // Cambiamos de vista
       hideById("#view-login");
       showById("#view-home");
-
       initHome();
-
-      hideGlobalLoader(); // Ojo. importante
+      hideGlobalLoader();
       return;
     }
 
@@ -765,9 +615,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await new Promise((resolve) => BX24.init(resolve));
       const user = await validateAsesorSecondName(n);
       if (!user || !user.id) {
-        setLoginError(
-          "No encontramos ese asesor en Bitrix24 (campo SECOND_NAME).",
-        );
+        setLoginError("No encontramos ese asesor en Bitrix24 (campo SECOND_NAME).");
         hideGlobalLoader();
         return;
       }
@@ -776,8 +624,6 @@ document.addEventListener("DOMContentLoaded", () => {
       STATE.asesorId = user.id;
 
       showGlobalLoader("Cargando informacion...");
-
-      // Cambiamos de vista
       hideById("#view-login");
       showById("#view-home");
 
@@ -785,31 +631,38 @@ document.addEventListener("DOMContentLoaded", () => {
       await loadMunicipioEnum();
 
       showGlobalLoader("Cargando campanas...");
-      await loadDealsFromBitrix();
+      await loadCampanaEnum();
+
+      showGlobalLoader("Cargando contactos...");
+      await loadContactosFromBitrix();
 
       showGlobalLoader("Preparando vista...");
       initHome();
     } catch (e) {
-      console.error("Error al cargar crm.deal.list:", e);
-      alert("Error cargando negocios desde Bitrix24. Revisa la consola.");
+      console.error("Error al cargar crm.contact.list:", e);
+      alert("Error cargando contactos desde Bitrix24. Revisa la consola.");
       initHome();
     } finally {
-      hideGlobalLoader(); // Ojo. siempre lo apaga
+      hideGlobalLoader();
     }
   });
 });
+
+qs("#md-close")?.addEventListener("click", closeCampanaModal);
+qs("#md-cancelar")?.addEventListener("click", closeCampanaModal);
 /*************************************************
  * 4) Home: busqueda, filtros y tabla
  *************************************************/
 function initHome() {
-  // Buscar
-  qs("#buscar").addEventListener("input", (e) => {
-    STATE.search = e.target.value.trim().toLowerCase();
-    renderTabla();
-  });
-  // === Filtro de campanas (multiselect) ===
-  const msCamp = qs("#ms-campanias");
+  const buscar = qs("#buscar");
+  if (buscar) {
+    buscar.addEventListener("input", (e) => {
+      STATE.search = e.target.value.trim().toLowerCase();
+      renderTabla();
+    });
+  }
 
+  const msCamp = qs("#ms-campanias");
   if (msCamp) {
     const lbl = msCamp.querySelector("[data-ms-label]");
     const trigger = msCamp.querySelector("[data-ms-trigger]");
@@ -822,27 +675,18 @@ function initHome() {
       }
     } else {
       if (trigger) trigger.disabled = false;
-
       initMultiSelect(msCamp, {
-        options: STATE.campanasDisponibles
-          .map((c) => String(c || "").trim())
-          .filter(Boolean)
-          .sort((a, b) => a.localeCompare(b))
-          .map((c) => ({ value: c, label: c })),
+        options: STATE.campanasDisponibles.map((c) => ({ value: c, label: c })),
         selected: STATE.filtros.campanas,
         placeholder: "Selecciona opciones",
         onChange: (set) => {
-          // Guardamos seleccion en STATE (se aplica al presionar "Aplicar")
-          STATE.filtros.campanas =
-            set instanceof Set ? set : new Set(set || []);
+          STATE.filtros.campanas = set instanceof Set ? set : new Set(set || []);
         },
       });
     }
   }
 
-  // === Filtro de asesores (multiselect) ===
   const msAses = qs("#ms-asesores");
-
   if (msAses) {
     const lbl = msAses.querySelector("[data-ms-label]");
     const trigger = msAses.querySelector("[data-ms-trigger]");
@@ -855,42 +699,22 @@ function initHome() {
       }
     } else {
       if (trigger) trigger.disabled = false;
-
       initMultiSelect(msAses, {
-        options: STATE.asesoresDisponibles
-          .map((a) => String(a || "").trim())
-          .filter(Boolean)
-          .sort((a, b) => a.localeCompare(b))
-          .map((a) => ({ value: a, label: `Asesor ${a}` })),
+        options: STATE.asesoresDisponibles.map((a) => ({ value: a, label: `Asesor ${a}` })),
         selected: STATE.filtros.asesores,
         placeholder: "Selecciona asesores",
         onChange: (set) => {
-          // Guardamos seleccion en STATE (se aplica al presionar "Aplicar")
-          STATE.filtros.asesores =
-            set instanceof Set ? set : new Set(set || []);
+          STATE.filtros.asesores = set instanceof Set ? set : new Set(set || []);
         },
       });
     }
   }
 
-  // Fechas (guardamos valores por si luego filtramos por DATE_CREATE)
   const fxInicio = qs("#fx-inicio");
   const fxFin = qs("#fx-fin");
+  if (fxInicio) fxInicio.addEventListener("change", (e) => (STATE.filtros.inicio = e.target.value));
+  if (fxFin) fxFin.addEventListener("change", (e) => (STATE.filtros.fin = e.target.value));
 
-  if (fxInicio) {
-    fxInicio.addEventListener(
-      "change",
-      (e) => (STATE.filtros.inicio = e.target.value),
-    );
-  }
-  if (fxFin) {
-    fxFin.addEventListener(
-      "change",
-      (e) => (STATE.filtros.fin = e.target.value),
-    );
-  }
-
-  // Drawer
   const btnFiltros = qs("#btn-filtros");
   const btnCloseDrawer = qs("#btn-close-drawer");
   const btnCancelarFiltros = qs("#btn-cancelar-filtros");
@@ -898,13 +722,13 @@ function initHome() {
 
   if (btnFiltros) btnFiltros.addEventListener("click", openDrawer);
   if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeDrawer);
-  if (btnCancelarFiltros)
-    btnCancelarFiltros.addEventListener("click", closeDrawer);
-  if (btnAplicarFiltros)
+  if (btnCancelarFiltros) btnCancelarFiltros.addEventListener("click", closeDrawer);
+  if (btnAplicarFiltros) {
     btnAplicarFiltros.addEventListener("click", () => {
       closeDrawer();
       renderTabla();
     });
+  }
 
   renderTabla();
 }
@@ -913,9 +737,7 @@ function openDrawer() {
   const d = qs("#drawer");
   if (!d) return;
   d.classList.remove("hidden");
-  requestAnimationFrame(() =>
-    d.classList.replace("translate-x-full", "translate-x-0"),
-  );
+  requestAnimationFrame(() => d.classList.replace("translate-x-full", "translate-x-0"));
 }
 function closeDrawer() {
   const d = qs("#drawer");
@@ -927,27 +749,149 @@ function closeDrawer() {
 function applyFilters(rows) {
   const norm = (v) => String(v || "").trim();
 
-  // campanas (0 = no filtra, 1 o varias = filtra por cualquiera seleccionada)
   if (STATE.filtros.campanas && STATE.filtros.campanas.size) {
     const set = new Set([...STATE.filtros.campanas].map(norm));
-    rows = rows.filter((r) => set.has(norm(r.campanaFila)));
+    rows = rows.filter((r) => (r.campanaTexts || []).some((c) => set.has(norm(c))));
   }
 
-  // Asesores (0 = no filtra, 1 o varias = filtra por cualquiera seleccionada)
   if (STATE.filtros.asesores && STATE.filtros.asesores.size) {
     const set = new Set([...STATE.filtros.asesores].map(norm));
     rows = rows.filter((r) => set.has(norm(r.asesor)));
   }
 
-  // Fechas: si quieres filtrar por DATE_CREATE, habria que guardar esa fecha en STATE.rows.
-
   if (STATE.search) {
     const term = String(STATE.search).toLowerCase();
-    rows = rows.filter((r) => (r.nombre || "").toLowerCase().includes(term));
+    rows = rows.filter((r) => {
+      const campanas = (r.campanaTexts || []).join(" ").toLowerCase();
+      return (
+        (r.nombre || "").toLowerCase().includes(term) ||
+        (r.email || "").toLowerCase().includes(term) ||
+        (r.phone || "").toLowerCase().includes(term) ||
+        (r.place || "").toLowerCase().includes(term) ||
+        campanas.includes(term)
+      );
+    });
   }
 
   return rows;
 }
+
+function renderCampanasCell(campanas = []) {
+  if (!campanas.length) return "-";
+
+  const max = 3;
+  const visibles = campanas.slice(0, max);
+  const restantes = campanas.length - max;
+  const id = "camp_" + Math.random().toString(36).slice(2, 9);
+
+  if (restantes <= 0) {
+    return visibles.join(", ");
+  }
+
+  const campanasJson = JSON.stringify(campanas)
+    .replace(/"/g, "&quot;");
+
+  return `
+    <span id="${id}">
+      ${visibles.join(", ")}
+      <button
+        type="button"
+        class="text-[#1d73ea] font-semibold ml-1 hover:underline"
+        onclick='expandCampanas("${id}", ${campanasJson})'
+      >
+        +${restantes} más
+      </button>
+    </span>
+  `;
+}
+
+function expandCampanas(id, campanas) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = campanas.join(", ");
+}
+function escapeHtml(str = "") {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderCampanasCell(campanas = []) {
+  if (!campanas.length) return "-";
+
+  const max = 3;
+  const visibles = campanas.slice(0, max);
+  const restantes = campanas.length - max;
+  const id = "camp_" + Math.random().toString(36).slice(2, 9);
+
+  const chipsHtml = visibles
+    .map(
+      (c) => `
+        <span class="inline-flex items-center rounded-full bg-[#e9f0ff] text-[#1d73ea] text-xs font-medium px-2.5 py-1">
+          ${escapeHtml(c)}
+        </span>
+      `,
+    )
+    .join("");
+
+  const tooltipHtml = campanas
+    .map((c) => `<div class="text-xs text-slate-700 leading-5">${escapeHtml(c)}</div>`)
+    .join("");
+
+  if (restantes <= 0) {
+    return `<div class="flex flex-wrap gap-1.5">${chipsHtml}</div>`;
+  }
+
+  const campanasJson = JSON.stringify(campanas).replace(/"/g, "&quot;");
+
+  return `
+    <div id="${id}" class="flex flex-wrap items-center gap-1.5">
+      ${chipsHtml}
+
+      <div class="relative inline-block group">
+        <button
+          type="button"
+          class="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-xs font-semibold px-2.5 py-1 hover:bg-slate-200 transition"
+          onclick='expandCampanas("${id}", ${campanasJson})'
+        >
+          +${restantes} más
+        </button>
+
+        <div class="pointer-events-none absolute left-0 top-full mt-2 hidden min-w-[220px] max-w-[320px] rounded-xl border border-slate-200 bg-white shadow-xl p-3 group-hover:block z-50">
+          <div class="text-[11px] font-semibold text-slate-500 mb-2">Campañas completas</div>
+          <div class="space-y-1">
+            ${tooltipHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function expandCampanas(id, campanas) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const chipsHtml = campanas
+    .map(
+      (c) => `
+        <span class="inline-flex items-center rounded-full bg-[#e9f0ff] text-[#1d73ea] text-xs font-medium px-2.5 py-1">
+          ${escapeHtml(c)}
+        </span>
+      `,
+    )
+    .join("");
+
+  el.innerHTML = `
+    <div class="flex flex-wrap gap-1.5">
+      ${chipsHtml}
+    </div>
+  `;
+}
+
 
 function renderTabla() {
   const tbody = qs("#tbody-clientes");
@@ -957,37 +901,45 @@ function renderTabla() {
   tbody.innerHTML = "";
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="px-5 py-6 text-center text-gray-500" colspan="4">Sin resultados</td></tr>`;
+    tbody.innerHTML = `<tr><td class="px-5 py-6 text-center text-gray-500" colspan="3">Sin resultados</td></tr>`;
     return;
   }
 
-  rows.forEach((r) => {
-    const tr = document.createElement("tr");
-    tr.className = "border-b last:border-b-0 hover:bg-gray-50";
-    tr.innerHTML = `
-        <td class="px-5 py-3">${r.nombre}</td>
-        <td class="px-5 py-3">${r.campanaFila || "-"}</td>
-        <td class="px-5 py-3">${chipEstado(r.estadoFila)}</td>
-        <td class="px-5 py-3">
-          <div class="flex justify-end">
-            <button class="text-[#1d73ea] hover:underline">Ver mas</button>
-          </div>
-        </td>`;
-    tr.querySelector("button").addEventListener("click", () =>
-      openDetalle(r.id),
-    );
-    tbody.appendChild(tr);
+rows.forEach((r) => {
+  const campanaTexto = renderCampanasCell(r.campanaTexts || []);
+  const tr = document.createElement("tr");
+  tr.className = "border-b last:border-b-0 hover:bg-gray-50";
+
+  tr.innerHTML = `
+    <td class="px-5 py-3">${r.nombre}</td>
+    <td class="px-5 py-3 align-top overflow-hidden">${campanaTexto}</td>
+    <td class="px-5 py-3 relative z-10">
+      <div class="flex justify-end">
+        <button class="btn-ver-mas flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-[#1d73ea] transition">
+          Ver más
+          <i class="fa-solid fa-arrow-right text-xs"></i>
+        </button>
+      </div>
+    </td>
+  `;
+
+  tr.querySelector(".btn-ver-mas")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openDetalle(r.id);
   });
+
+  tbody.appendChild(tr);
+});
 }
 
 /*************************************************
- * 5) Detalle + Modal (demo visual, sin escribir aun en Bitrix)
+ * 5) Detalle de contacto
  *************************************************/
-let CURRENT_CTX = { row: null, estadoSel: "" };
+let CURRENT_CTX = { row: null };
 
 function openDetalle(id) {
   const row = STATE.rows.find((x) => String(x.id) === String(id));
-
   if (!row) return;
 
   CURRENT_CTX.row = row;
@@ -995,342 +947,693 @@ function openDetalle(id) {
   hideById("#view-home");
   showById("#view-detalle");
 
-  // Rellenar encabezado e inputs
-  qs("#dtl-nombre").textContent = row.nombre || "Cliente";
+  qs("#dtl-nombre").textContent = row.nombre || "Contacto";
   qs("#dtl-person").value = row.nombre || "";
   qs("#dtl-email").value = row.email || "";
   qs("#dtl-phone").value = row.phone || "";
-  qs("#dtl-place").value = row.place || "";
 
-  // Boton volver
-  qs("#btn-back").onclick = () => {
-    hideById("#view-detalle");
-    showById("#view-home");
-  };
+  fillMunicipioSelect(row.municipioId || "");
 
-  // Boton guardar datos del cliente
-  const btnGuardar = qs("#btn-guardar-contacto");
-  if (btnGuardar) {
-    btnGuardar.onclick = saveContactFromDetalle;
+  const btnActualizar = document.getElementById("btn-actualizar-contacto");
+  if (btnActualizar) {
+    btnActualizar.onclick = () => {
+      saveContactFromDetalle();
+    };
   }
 
-  //  llamar a la funcion global que pinta la card
+  const btnBack = qs("#btn-back");
+  if (btnBack) {
+    btnBack.onclick = () => {
+      hideById("#view-detalle");
+      showById("#view-home");
+    };
+  }
+
   renderCampaignCardsByContact(row.contactId);
+}
+
+function fillMunicipioSelect(selectedId = "") {
+  const sel = qs("#dtl-place");
+  if (!sel) return;
+
+  sel.innerHTML = `<option value="">Selecciona ciudad</option>`;
+
+  Object.entries(MUNICIPIO_ENUM)
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+    .forEach(([id, text]) => {
+      const opt = document.createElement("option");
+      opt.value = String(id);
+      opt.textContent = text;
+
+      if (String(id) === String(selectedId)) {
+        opt.selected = true;
+      }
+
+      sel.appendChild(opt);
+    });
 }
 
 async function renderCampaignCardsByContact(contactId) {
   const wrap = qs("#dtl-cards");
   if (!wrap) return;
 
-  wrap.innerHTML = `<div class="text-sm text-slate-500">Cargando campanas activas...</div>`;
+  wrap.innerHTML = `<div class="text-sm text-slate-500">Cargando campañas activas...</div>`;
 
   let contact = null;
-  let deals = [];
   try {
     contact = await fetchContactById(contactId);
     await loadCampanaEnum();
-    deals = await fetchActiveDealsByContact(contactId);
   } catch (e) {
-    console.error("Error consultando contacto/deals:", e);
-    wrap.innerHTML = `<div class="text-sm text-red-500">No se pudieron cargar las campanas activas.</div>`;
+    console.error("Error consultando contacto:", e);
+    wrap.innerHTML = `<div class="text-sm text-red-500">No se pudieron cargar las campañas activas.</div>`;
     return;
   }
 
   if (!contact) {
-    wrap.innerHTML = `<div class="text-sm text-slate-500">No se encontro el contacto.</div>`;
+    wrap.innerHTML = `<div class="text-sm text-slate-500">No se encontró el contacto.</div>`;
     return;
   }
 
-  if (
-    STATE.asesorId &&
-    String(contact.ASSIGNED_BY_ID || "") !== STATE.asesorId
-  ) {
-    wrap.innerHTML = `<div class="text-sm text-slate-500">Este cliente no esta asignado a tu usuario.</div>`;
+  if (STATE.asesorId && String(contact.ASSIGNED_BY_ID || "") !== STATE.asesorId) {
+    wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no está asignado a tu usuario.</div>`;
     return;
   }
 
-  const campo = contact.UF_CRM_1768059328177;
-  const valores = Array.isArray(campo)
-    ? campo.filter(Boolean)
-    : campo
-      ? [campo]
-      : [];
+  const campanas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
 
-  if (!valores.length) {
-    wrap.innerHTML = `<div class="text-sm text-slate-500">Este cliente no tiene campanas activas.</div>`;
+  if (!campanas.length) {
+    wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no tiene campañas activas.</div>`;
     return;
   }
 
   wrap.innerHTML = "";
 
-  const dealByProductId = {};
-  deals.forEach((d) => {
-    const pid = d.UF_CRM_1764444016968 ? String(d.UF_CRM_1764444016968) : "";
-    if (pid) dealByProductId[pid] = d;
-  });
+  for (const campanaTxt of campanas) {
+    let producto = null;
 
-  let productsByName = {};
-  try {
-    productsByName = await fetchProductsForCampanas();
-  } catch (e) {
-    console.error("Error cargando productos de campanas:", e);
-  }
-
-  for (const val of valores) {
-    const key = String(val);
-    const campanaTxt = CAMPANA_ENUM[key] || key;
-    const prod = productsByName[campanaTxt.toLowerCase()] || null;
-
-    let estadoCampana = "-";
-    let nombreProducto = campanaTxt;
-    let productId = null;
-    let dealId = "";
-    let estadoCliente = "";
-    let notas = "";
-
-    if (prod && prod.id) {
-      productId = prod.id;
-      nombreProducto = prod.name || campanaTxt;
-      try {
-        const info = await fetchProductInfo(productId);
-        estadoCampana = info?.estado || "-";
-      } catch (e) {
-        console.error("Error cargando estado campana (producto):", e);
-      }
+    try {
+      producto = await fetchProductoCampanaByNombre(campanaTxt);
+    } catch (e) {
+      console.error("Error consultando producto de campaña:", campanaTxt, e);
     }
 
-    const deal = productId ? dealByProductId[String(productId)] : null;
-    if (deal) {
-      dealId = String(deal.ID || "");
-      estadoCliente = deal.UF_CRM_1764401898591 || "";
-      notas = deal.UF_CRM_68911F4662EF3 || "";
-      nombreProducto = deal.TITLE || nombreProducto;
-    }
+    const fechaInicioRaw = getBitrixPropValue(producto?.PROPERTY_360);
+    const fechaFinRaw = getBitrixPropValue(producto?.PROPERTY_356);
+    const estadoRaw = getBitrixPropValue(producto?.PROPERTY_358);
 
-    const estadoVisual =
-      dealId && STATE.cardVisualStatus && STATE.cardVisualStatus[String(dealId)]
-        ? STATE.cardVisualStatus[String(dealId)]
-        : "Por completar";
+    const fechaInicio = formatFechaBitrix(fechaInicioRaw);
+    const fechaFin = formatFechaBitrix(fechaFinRaw);
+   const estadoCampana = estadoRaw || "Sin estado";
+    const statusMap = loadCardStatusMap();
+    const cardKey = getCardStatusKey(contactId, campanaTxt);
+    const estadoSeguimiento = statusMap[cardKey] || "Por completar";
 
     const card = document.createElement("div");
-    card.className =
-      "bg-blue-50 border border-blue-100 shadow-sm rounded-2xl p-5";
+    card.className = "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
 
     card.innerHTML = `
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-lg font-semibold text-slate-900 truncate">
-            ${nombreProducto}
-          </div>
-
-          <div class="text-sm text-slate-600 mt-2">
-            <span class="font-semibold text-slate-700">Estado campana:</span>
-            <span class="${statusColorClass(
-              estadoCampana,
-            )}">${estadoCampana}</span>
-          </div>
+      <div class="flex items-start justify-between">
+        <div class="text-xl font-semibold text-slate-900">
+          ${campanaTxt}
         </div>
 
-        <div class="flex flex-col items-end gap-2 shrink-0">
-          <button class="text-[#1d73ea] font-semibold text-sm" type="button">
-            Detalle
-          </button>
-
-          <div class="text-xs">
-            <span class="${statusColorClass(estadoVisual)} font-semibold">${estadoVisual}</span>
-          </div>
+        <div class="text-sm font-semibold text-green-600">
+          ${estadoCampana}
         </div>
+      </div>
+
+      <div class="mt-6 flex items-center justify-between">
+      <div class="text-sm font-medium ${
+  estadoSeguimiento === "Completado"
+    ? "text-green-600"
+    : estadoSeguimiento === "Seguimiento"
+    ? "text-blue-600"
+    : "text-orange-500"
+}">
+  ${estadoSeguimiento}
+</div>
+
+        <button 
+          class="btn-detalle px-4 py-2 rounded-full border border-blue-500 text-blue-500 text-sm font-medium hover:bg-blue-50 transition"
+        >
+          Detalle
+        </button>
       </div>
     `;
 
-    wrap.appendChild(card);
-
-    const btn = card.querySelector("button");
+    const btn = card.querySelector(".btn-detalle");
     if (btn) {
-      btn.addEventListener("click", () =>
-        openModal({
-          id: dealId,
-          contactId: String(contactId || ""),
-          productId,
-          estadoCliente,
-          notas,
-          campanaFila: campanaTxt,
-          nombre: nombreProducto,
-        }),
-      );
+      btn.onclick = () => {
+        openCampanaModal({
+          nombre: campanaTxt,
+          producto,
+        });
+      };
     }
+
+    wrap.appendChild(card);
   }
 }
 
-function saveContactFromDetalle() {
+
+// ===== MODAL CAMPAÑA =====
+
+let CURRENT_MODAL_CTX = {
+  campana: null,
+  producto: null,
+  estadoCliente: "",
+};
+
+function toDateInputValue(value) {
+  if (!value) return "";
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function openCampanaModal(ctx) {
+  CURRENT_MODAL_CTX = {
+    campana: ctx?.nombre || "",
+    producto: ctx?.producto || null,
+    estadoCliente: "",
+  };
+
+  const modal = qs("#modal");
+  if (!modal) return;
+
+  const fechaInicioRaw = getBitrixPropValue(ctx?.producto?.PROPERTY_360);
+  const fechaFinRaw = getBitrixPropValue(ctx?.producto?.PROPERTY_356);
+
+  qs("#md-titulo").textContent = ctx?.nombre || "Detalle campaña";
+  qs("#md-inicio-text").textContent = formatFechaBitrix(fechaInicioRaw);
+qs("#md-fin-text").textContent = formatFechaBitrix(fechaFinRaw);
+  qs("#md-notas").value = "";
+
+  qsa("[data-estado]").forEach((btn) => {
+    btn.classList.remove("ring-2", "ring-offset-2", "ring-[#1d73ea]");
+    btn.onclick = () => {
+      CURRENT_MODAL_CTX.estadoCliente = btn.dataset.estado || "";
+
+      qsa("[data-estado]").forEach((b) => {
+        b.classList.remove("ring-2", "ring-offset-2", "ring-[#1d73ea]");
+      });
+
+      btn.classList.add("ring-2", "ring-offset-2", "ring-[#1d73ea]");
+    };
+  });
+
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
+
+function closeCampanaModal() {
+  const modal = qs("#modal");
+  if (!modal) return;
+
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+}
+
+function formatNowForLog() {
+  const now = new Date();
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}/${month}/${day}`;
+}
+
+function findEnumOptionByValue(list = [], value = "") {
+  const target = String(value || "").trim().toLowerCase();
+  return list.find(
+    (item) => String(item.VALUE || "").trim().toLowerCase() === target
+  ) || null;
+}
+
+function getContactUserfieldByName(fieldName) {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod(
+      "crm.contact.userfield.list",
+      {
+        filter: {
+          FIELD_NAME: fieldName,
+        },
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        const rows = result.data() || [];
+        resolve(rows[0] || null);
+      }
+    );
+  });
+}
+
+function updateContactUserfieldList(fieldId, currentList, newValue) {
+  return new Promise((resolve, reject) => {
+    const nextList = [...(currentList || [])];
+
+    nextList.push({
+      VALUE: newValue,
+      SORT: 500,
+      XML_ID: `AUTO_${Date.now()}`,
+    });
+
+    BX24.callMethod(
+      "crm.contact.userfield.update",
+      {
+        id: fieldId,
+        fields: {
+          LIST: nextList,
+        },
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        resolve(true);
+      }
+    );
+  });
+}
+
+function getDealUserfieldByName(fieldName) {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod(
+      "crm.deal.userfield.list",
+      {
+        filter: {
+          FIELD_NAME: fieldName,
+        },
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        const rows = result.data() || [];
+        resolve(rows[0] || null);
+      }
+    );
+  });
+}
+
+function updateDealUserfieldList(fieldId, currentList, newValue) {
+  return new Promise((resolve, reject) => {
+    const nextList = [...(currentList || [])];
+
+    nextList.push({
+      VALUE: newValue,
+      SORT: 500,
+      XML_ID: `AUTO_${Date.now()}`,
+    });
+
+    BX24.callMethod(
+      "crm.deal.userfield.update",
+      {
+        id: fieldId,
+        fields: {
+          LIST: nextList,
+        },
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        resolve(true);
+      }
+    );
+  });
+}
+
+async function ensureDealEnumOption(fieldCode, valueText) {
+  const userField = await getDealUserfieldByName(fieldCode);
+
+  if (!userField?.ID) {
+    throw new Error(`No se encontró el campo deal ${fieldCode}.`);
+  }
+
+  let option = findEnumOptionByValue(userField.LIST || [], valueText);
+
+  if (!option) {
+    await updateDealUserfieldList(userField.ID, userField.LIST || [], valueText);
+
+    const refreshedField = await getDealUserfieldByName(fieldCode);
+    option = findEnumOptionByValue(refreshedField?.LIST || [], valueText);
+  }
+
+  if (!option?.ID) {
+    throw new Error(`No se pudo obtener el ID de la opción en ${fieldCode}.`);
+  }
+
+  return option.ID;
+}
+
+function createDeal(fields) {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod(
+      "crm.deal.add",
+      { fields },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        resolve(result.data());
+      }
+    );
+  });
+}
+
+
+async function createInteresadoDeal({
+  contactId,
+  campana,
+  estadoCliente,
+  notas,
+  asesorId,
+  nombreCliente,
+}) {
+  const dealCampanaField = "UF_CRM_1718745465646";
+  const dealEstadoField = "UF_CRM_1764401898591";
+  const dealNotasField = "UF_CRM_68911F4662EF3";
+
+  const campanaOptionId = await ensureDealEnumOption(dealCampanaField, campana);
+
+  const title = `${String(nombreCliente || "").trim()} - ${String(campana || "").trim()}`.trim();
+
+  const fields = {
+    TITLE: title,
+    CATEGORY_ID: 10,
+    STAGE_ID: "C10:NEW",
+    CONTACT_ID: String(contactId),
+    ASSIGNED_BY_ID: asesorId ? Number(asesorId) : undefined,
+    [dealEstadoField]: estadoCliente,
+    [dealNotasField]: notas,
+    [dealCampanaField]: campanaOptionId,
+  };
+
+  // limpia undefined por si no viene asesor
+  Object.keys(fields).forEach((key) => {
+    if (fields[key] === undefined) delete fields[key];
+  });
+
+  return await createDeal(fields);
+}
+async function updateContactEnumValue(contactId, fieldCode, enumId) {
+  const contact = await fetchContactById(contactId);
+
+  const currentValues = Array.isArray(contact?.[fieldCode])
+    ? contact[fieldCode].map(String).filter(Boolean)
+    : contact?.[fieldCode]
+      ? [String(contact[fieldCode])]
+      : [];
+
+  const nextValues = [...new Set([...currentValues, String(enumId)])];
+
+  return new Promise((resolve, reject) => {
+    BX24.callMethod(
+      "crm.contact.update",
+      {
+        id: String(contactId),
+        fields: {
+          [fieldCode]: nextValues,
+        },
+      },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+
+        resolve(true);
+      }
+    );
+  });
+}
+
+qs("#md-guardar")?.addEventListener("click", async () => {
+  if (!CURRENT_MODAL_CTX.estadoCliente) {
+    showToast("Selecciona un estado del cliente antes de guardar.", "error");
+    return;
+  }
+
+  const estadoRaw = CURRENT_MODAL_CTX.estadoCliente;
+
+  const estadoLabelMap = {
+    interesado: "Interesado",
+    no_interesado: "No interesado",
+    inseguro: "Inseguro",
+  };
+
+  const estadoCliente = estadoLabelMap[estadoRaw] || estadoRaw;
+  const notas = qs("#md-notas")?.value.trim() || "";
+  const fechaActual = formatNowForLog();
+  const campana = CURRENT_MODAL_CTX.campana || "Sin campaña";
+  const contactId = CURRENT_CTX?.row?.contactId;
+
+  if (!contactId) {
+    showToast("No se encontró el contacto actual.", "error");
+    return;
+  }
+
+  const resumen = notas
+    ? `${campana} - ${estadoCliente} - ${notas} - ${fechaActual}`
+    : `${campana} - ${estadoCliente} - ${fechaActual}`;
+
+  try {
+    const fieldCode = "UF_CRM_1776206743575";
+
+    const userField = await getContactUserfieldByName(fieldCode);
+
+    if (!userField?.ID) {
+      showToast(`No se encontró el campo ${fieldCode}.`, "error");
+      return;
+    }
+
+    let option = findEnumOptionByValue(userField.LIST || [], resumen);
+
+    if (!option) {
+      await updateContactUserfieldList(userField.ID, userField.LIST || [], resumen);
+
+      const refreshedField = await getContactUserfieldByName(fieldCode);
+      option = findEnumOptionByValue(refreshedField?.LIST || [], resumen);
+    }
+
+    if (!option?.ID) {
+      showToast("No se pudo obtener el ID de la opción creada.", "error");
+      return;
+    }
+
+    await updateContactEnumValue(contactId, fieldCode, option.ID);
+
+if (estadoRaw === "interesado") {
+  const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
+
+  await createInteresadoDeal({
+    contactId,
+    campana,
+    estadoCliente,
+    notas,
+    asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
+    nombreCliente,
+  });
+}
+
+const statusMap = loadCardStatusMap();
+const cardKey = getCardStatusKey(contactId, campana);
+
+if (estadoRaw === "no_interesado" || estadoRaw === "interesado") {
+  statusMap[cardKey] = "Completado";
+}
+
+if (estadoRaw === "inseguro") {
+  statusMap[cardKey] = "Seguimiento";
+}
+
+saveCardStatusMap(statusMap);
+
+await renderCampaignCardsByContact(contactId);
+
+closeCampanaModal();
+showToast("Guardado correctamente.");
+
+  } catch (e) {
+    console.error("Error guardando opción dinámica:", e);
+    showToast("No se pudo guardar la opción dinámica en la lista.", "error");
+  }
+});
+
+function setActualizarButtonState(state = "idle") {
+  const btn = document.getElementById("btn-actualizar-contacto");
+  if (!btn) return;
+
+  if (!btn.dataset.originalText) {
+    btn.dataset.originalText = btn.textContent.trim() || "Actualizar datos";
+  }
+
+  if (state === "loading") {
+    btn.disabled = true;
+    btn.classList.add("opacity-70", "cursor-not-allowed");
+    btn.innerHTML = `
+      <span class="inline-flex items-center gap-2">
+        <i class="fa-solid fa-spinner fa-spin"></i>
+        Guardando...
+      </span>
+    `;
+    return;
+  }
+
+  if (state === "success") {
+    btn.disabled = true;
+    btn.classList.remove("opacity-70", "cursor-not-allowed");
+    btn.innerHTML = `
+      <span class="inline-flex items-center gap-2">
+        <i class="fa-solid fa-check"></i>
+        Datos actualizados
+      </span>
+    `;
+    return;
+  }
+
+  btn.disabled = false;
+  btn.classList.remove("opacity-70", "cursor-not-allowed");
+  btn.textContent = btn.dataset.originalText || "Actualizar datos";
+}
+
+async function saveContactFromDetalle() {
   const row = CURRENT_CTX.row;
   if (!row || !row.contactId) {
     alert("No se encontro el contacto para este registro.");
     return;
   }
 
-  const fullName = qs("#dtl-person").value.trim();
-  const email = qs("#dtl-email").value.trim();
-  const phone = qs("#dtl-phone").value.trim();
-  const placeTxt = qs("#dtl-place").value.trim();
+  const fullName = qs("#dtl-person")?.value.trim() || "";
+  const email = qs("#dtl-email")?.value.trim() || "";
+  const phone = qs("#dtl-phone")?.value.trim() || "";
+  const municipioId = qs("#dtl-place")?.value || "";
+  const placeTxt = MUNICIPIO_ENUM[municipioId] || "";
 
-  // Separar nombre y apellido
   let NAME = fullName;
   let LAST_NAME = "";
   if (fullName.includes(" ")) {
     const parts = fullName.split(" ");
-    NAME = parts.shift();
+    NAME = parts.shift() || "";
     LAST_NAME = parts.join(" ");
   }
 
-  // Buscar ID de municipio por texto (usamos un mapa texto -> ID)
-  let municipioId = row.municipioId || "";
-  if (placeTxt) {
-    const key = placeTxt.trim().toLowerCase();
-    if (MUNICIPIO_ENUM_BY_TEXT && MUNICIPIO_ENUM_BY_TEXT[key]) {
-      municipioId = MUNICIPIO_ENUM_BY_TEXT[key];
+  setActualizarButtonState("loading");
+
+  try {
+    const contact = await fetchContactById(row.contactId);
+
+    const emails = Array.isArray(contact?.EMAIL) ? contact.EMAIL : [];
+    const phones = Array.isArray(contact?.PHONE) ? contact.PHONE : [];
+
+    const firstEmail = emails[0] || null;
+    const firstPhone = phones[0] || null;
+
+    const emailPayload = [];
+    const phonePayload = [];
+
+    if (email) {
+      if (firstEmail?.ID) {
+        emailPayload.push({
+          ID: firstEmail.ID,
+          VALUE: email,
+          VALUE_TYPE: firstEmail.VALUE_TYPE || "WORK",
+        });
+      } else {
+        emailPayload.push({
+          VALUE: email,
+          VALUE_TYPE: "WORK",
+        });
+      }
+
+      // elimina emails extra
+      for (let i = 1; i < emails.length; i++) {
+        if (emails[i]?.ID) {
+          emailPayload.push({
+            ID: emails[i].ID,
+            DELETE: "Y",
+          });
+        }
+      }
     }
-  }
 
-  const fields = {
-    NAME,
-    LAST_NAME,
-    UF_CRM_1722975246: municipioId || null,
-    PHONE: email ? undefined : undefined, // lo definimos abajo para no enviar vacio
-    EMAIL: undefined,
-  };
+    if (phone) {
+      if (firstPhone?.ID) {
+        phonePayload.push({
+          ID: firstPhone.ID,
+          VALUE: phone,
+          VALUE_TYPE: firstPhone.VALUE_TYPE || "WORK",
+        });
+      } else {
+        phonePayload.push({
+          VALUE: phone,
+          VALUE_TYPE: "WORK",
+        });
+      }
 
-  // PHONE / EMAIL como multi-fields
-  if (phone) {
-    fields.PHONE = [{ VALUE: phone, VALUE_TYPE: "WORK" }];
-  }
-  if (email) {
-    fields.EMAIL = [{ VALUE: email, VALUE_TYPE: "WORK" }];
-  }
+      // elimina teléfonos extra
+      for (let i = 1; i < phones.length; i++) {
+        if (phones[i]?.ID) {
+          phonePayload.push({
+            ID: phones[i].ID,
+            DELETE: "Y",
+          });
+        }
+      }
+    }
 
-  console.log("Actualizando contacto", row.contactId, fields);
+    const fields = {
+      NAME,
+      LAST_NAME,
+      UF_CRM_1722975246: municipioId || null,
+    };
 
-  BX24.callMethod(
-    "crm.contact.update",
-    { id: row.contactId, fields },
-    function (result) {
+    if (email) fields.EMAIL = emailPayload;
+    if (phone) fields.PHONE = phonePayload;
+
+    BX24.callMethod("crm.contact.update", { id: row.contactId, fields }, function (result) {
       if (result.error()) {
         console.error("Error al actualizar contacto:", result.error());
-        alert("Error actualizando el cliente. Revisa consola.");
+        setActualizarButtonState("idle");
+        alert("Error actualizando el contacto. Revisa consola.");
         return;
       }
 
-      // Actualizar tambien el STATE para que quede consistente
       row.nombre = fullName || row.nombre;
-      row.email = email;
-      row.phone = phone;
+      row.email = email || row.email;
+      row.phone = phone || row.phone;
       row.municipioId = municipioId;
       row.place = placeTxt || row.place;
 
-      alert("Datos del cliente actualizados correctamente.");
-    },
-  );
-}
+      qs("#dtl-nombre").textContent = row.nombre || "Contacto";
+      renderTabla();
 
-async function openModal(row) {
-  CURRENT_CTX = { row, estadoSel: row.estadoCliente || "" };
-
-  // Titulo
-  qs("#md-titulo").textContent = row.campanaFila || row.nombre || "campana";
-
-  // Inputs fechas (solo lectura)
-  qs("#md-inicio").disabled = true;
-  qs("#md-fin").disabled = true;
-
-  qs("#md-inicio").value = "";
-  qs("#md-fin").value = "";
-
-  if (row.productId) {
-    try {
-      const info = await fetchProductInfo(row.productId);
-      qs("#md-inicio").value = info?.fechaInicio || "";
-      qs("#md-fin").value = info?.fechaFin || "";
-    } catch (e) {
-      console.error("Error cargando fechas del producto:", e);
-    }
+      setActualizarButtonState("success");
+      setTimeout(() => setActualizarButtonState("idle"), 1800);
+    });
+  } catch (e) {
+    console.error("Error preparando actualizacion:", e);
+    setActualizarButtonState("idle");
+    alert("No se pudo preparar la actualizacion del contacto.");
   }
-
-  // Notas (si ya existen)
-  qs("#md-notas").value = row.notas || "";
-
-  // Estados (botones)
-  qsa("[data-estado]").forEach((btn) => {
-    btn.classList.remove("ring-2", "ring-[#1d73ea]");
-
-    if (btn.dataset.estado === CURRENT_CTX.estadoSel) {
-      btn.classList.add("ring-2", "ring-[#1d73ea]");
-    }
-
-    btn.onclick = () => {
-      CURRENT_CTX.estadoSel = btn.dataset.estado;
-      qsa("[data-estado]").forEach((b) =>
-        b.classList.remove("ring-2", "ring-[#1d73ea]"),
-      );
-      btn.classList.add("ring-2", "ring-[#1d73ea]");
-    };
-  });
-
-  // Mostrar modal
-  const m = qs("#modal");
-  m.classList.remove("hidden");
-  m.classList.add("flex");
-
-  qs("#md-cancelar").onclick = closeModal;
-  qs("#md-close").onclick = closeModal;
-  qs("#md-guardar").onclick = saveModal;
-
-  //  Cargar fechas desde el PRODUCTO
-  if (row.productId) {
-    try {
-      const info = await fetchProductInfo(row.productId);
-      qs("#md-inicio").value = info?.fechaInicio || "";
-      qs("#md-fin").value = info?.fechaFin || "";
-    } catch (e) {
-      console.error("Error cargando fechas del producto:", e);
-    }
-  }
-}
-function closeModal() {
-  const m = qs("#modal");
-  if (!m) return;
-  m.classList.add("hidden");
-  m.classList.remove("flex");
-}
-
-function saveModal() {
-  const dealId = CURRENT_CTX.row.id;
-  const estadoCliente = CURRENT_CTX.estadoSel || "";
-  const notas = qs("#md-notas").value.trim();
-
-  if (!dealId) {
-    alert("No hay un negocio asociado para guardar este detalle.");
-    return;
-  }
-
-  // Guardar en Bitrix: estado cliente + notas
-  const fields = {
-    UF_CRM_1764401898591: estadoCliente,
-    UF_CRM_68911F4662EF3: notas,
-  };
-
-  BX24.callMethod("crm.deal.update", { id: dealId, fields }, (res) => {
-    if (res.error()) {
-      console.error("Error crm.deal.update:", res.error());
-      alert("No se pudo guardar. Revisa consola.");
-      return;
-    }
-
-    // OK visual final persistente
-    setVisualCompleted(dealId);
-
-    closeModal();
-
-    // OK refrescar cards del mismo contacto
-    renderCampaignCardsByContact(CURRENT_CTX.row.contactId);
-  });
 }
