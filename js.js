@@ -17,7 +17,7 @@ let STATE = {
   asesoresDisponibles: [],
 };
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
-
+let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
 const DISABLE_LOGIN = true;
 
@@ -1024,7 +1024,19 @@ function openDetalle(id) {
   qs("#dtl-phone").value = row.phone || "";
 
   fillMunicipioSelect(row.municipioId || "");
+const btnToggle = document.getElementById("btn-toggle-campanas");
 
+if (btnToggle) {
+  btnToggle.onclick = () => {
+    SHOW_ALL_CAMPAIGNS = !SHOW_ALL_CAMPAIGNS;
+
+    btnToggle.textContent = SHOW_ALL_CAMPAIGNS
+      ? "Ocultar campañas completadas"
+      : "Ver todas las campañas";
+
+    renderCampaignCardsByContact(row.contactId);
+  };
+}
   const btnActualizar = document.getElementById("btn-actualizar-contacto");
   if (btnActualizar) {
     btnActualizar.onclick = () => {
@@ -1090,7 +1102,21 @@ async function renderCampaignCardsByContact(contactId) {
     return;
   }
 
-  const campanas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
+  const campanasTodas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
+
+const statusMap = loadCardStatusMap();
+
+const campanas = campanasTodas.filter((campanaTxt) => {
+  const key = getCardStatusKey(contactId, campanaTxt);
+  const estado = statusMap[key];
+
+  // si NO estamos mostrando todas → ocultar completadas
+  if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") {
+    return false;
+  }
+
+  return true;
+});
 
   if (!campanas.length) {
     wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no tiene campañas activas.</div>`;
