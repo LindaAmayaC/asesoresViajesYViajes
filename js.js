@@ -60,7 +60,63 @@ function showToast(message = "", type = "success") {
     toast.classList.add("hidden");
   }, 2600);
 }
+function setModalGuardarState(state = "idle") {
+  const btn = document.getElementById("md-guardar");
+  const btnCancel = document.getElementById("md-cancelar");
+  const btnClose = document.getElementById("md-close");
 
+  if (!btn) return;
+
+  if (!btn.dataset.originalText) {
+    btn.dataset.originalText = btn.textContent.trim() || "Guardar";
+  }
+
+  if (state === "loading") {
+    btn.disabled = true;
+    btn.classList.add("opacity-80", "cursor-not-allowed");
+    btn.innerHTML = `
+      <span class="inline-flex items-center gap-2">
+        <i class="fa-solid fa-spinner fa-spin"></i>
+        Guardando...
+      </span>
+    `;
+    if (btnCancel) btnCancel.disabled = true;
+    if (btnClose) btnClose.disabled = true;
+    return;
+  }
+
+  if (state === "success") {
+    btn.disabled = true;
+    btn.classList.remove("opacity-80", "cursor-not-allowed");
+    btn.innerHTML = `
+      <span class="inline-flex items-center gap-2">
+        <i class="fa-solid fa-check"></i>
+        Guardado
+      </span>
+    `;
+    return;
+  }
+
+  btn.disabled = false;
+  btn.classList.remove("opacity-80", "cursor-not-allowed");
+  btn.textContent = btn.dataset.originalText || "Guardar";
+
+  if (btnCancel) btnCancel.disabled = false;
+  if (btnClose) btnClose.disabled = false;
+}
+function showModalLoader() {
+  const el = document.getElementById("modal-loader");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.classList.add("flex");
+}
+
+function hideModalLoader() {
+  const el = document.getElementById("modal-loader");
+  if (!el) return;
+  el.classList.add("hidden");
+  el.classList.remove("flex");
+}
 /*************************************************
  * helpers DOM
  *************************************************/
@@ -313,6 +369,21 @@ function showGlobalLoader(text = "Cargando informacion...") {
 
 function hideGlobalLoader() {
   const loader = document.getElementById("global-loader");
+  if (!loader) return;
+
+  loader.classList.add("hidden");
+  loader.classList.remove("flex");
+}
+function showDetalleLoader() {
+  const loader = document.getElementById("detalle-loader");
+  if (!loader) return;
+
+  loader.classList.remove("hidden");
+  loader.classList.add("flex");
+}
+
+function hideDetalleLoader() {
+  const loader = document.getElementById("detalle-loader");
   if (!loader) return;
 
   loader.classList.add("hidden");
@@ -1416,16 +1487,21 @@ qs("#md-guardar")?.addEventListener("click", async () => {
   const resumen = notas
     ? `${campana} - ${estadoCliente} - ${notas} - ${fechaActual}`
     : `${campana} - ${estadoCliente} - ${fechaActual}`;
-
+    
   try {
+    
+     setModalGuardarState("loading");
+     showModalLoader();
     const fieldCode = "UF_CRM_1776206743575";
 
     const userField = await getContactUserfieldByName(fieldCode);
 
     if (!userField?.ID) {
-      showToast(`No se encontró el campo ${fieldCode}.`, "error");
-      return;
-    }
+  showToast(`No se encontró el campo ${fieldCode}.`, "error");
+  setModalGuardarState("idle");
+  hideModalLoader();
+  return;
+}
 
     let option = findEnumOptionByValue(userField.LIST || [], resumen);
 
@@ -1436,10 +1512,12 @@ qs("#md-guardar")?.addEventListener("click", async () => {
       option = findEnumOptionByValue(refreshedField?.LIST || [], resumen);
     }
 
-    if (!option?.ID) {
-      showToast("No se pudo obtener el ID de la opción creada.", "error");
-      return;
-    }
+  if (!option?.ID) {
+  showToast("No se pudo obtener el ID de la opción creada.", "error");
+  setModalGuardarState("idle");
+  hideModalLoader();
+  return;
+}
 
     await updateContactEnumValue(contactId, fieldCode, option.ID);
 
@@ -1470,15 +1548,23 @@ if (estadoRaw === "inseguro") {
 saveCardStatusMap(statusMap);
 
 await renderCampaignCardsByContact(contactId);
-
-closeCampanaModal();
+setModalGuardarState("success");
+hideModalLoader();
 showToast("Guardado correctamente.");
 
-  } catch (e) {
-    console.error("Error guardando opción dinámica:", e);
-    showToast("No se pudo guardar la opción dinámica en la lista.", "error");
-  }
+setTimeout(() => {
+  closeCampanaModal();
+  setModalGuardarState("idle");
+}, 500);
+
+}  catch (e) {
+  console.error("Error guardando opción dinámica:", e);
+  setModalGuardarState("idle");
+  hideModalLoader();
+  showToast("No se pudo guardar la opción dinámica en la lista.", "error");
+}
 });
+
 
 function setActualizarButtonState(state = "idle") {
   const btn = document.getElementById("btn-actualizar-contacto");
@@ -1520,7 +1606,7 @@ function setActualizarButtonState(state = "idle") {
 async function saveContactFromDetalle() {
   const row = CURRENT_CTX.row;
   if (!row || !row.contactId) {
-    alert("No se encontro el contacto para este registro.");
+   showToast("No se encontró el contacto para este registro.", "error");
     return;
   }
 
@@ -1539,6 +1625,7 @@ async function saveContactFromDetalle() {
   }
 
   setActualizarButtonState("loading");
+  showDetalleLoader();
 
   try {
     const contact = await fetchContactById(row.contactId);
@@ -1612,28 +1699,32 @@ async function saveContactFromDetalle() {
     if (phone) fields.PHONE = phonePayload;
 
     BX24.callMethod("crm.contact.update", { id: row.contactId, fields }, function (result) {
-      if (result.error()) {
-        console.error("Error al actualizar contacto:", result.error());
-        setActualizarButtonState("idle");
-        alert("Error actualizando el contacto. Revisa consola.");
-        return;
-      }
-
-      row.nombre = fullName || row.nombre;
-      row.email = email || row.email;
-      row.phone = phone || row.phone;
-      row.municipioId = municipioId;
-      row.place = placeTxt || row.place;
-
-      qs("#dtl-nombre").textContent = row.nombre || "Contacto";
-      renderTabla();
-
-      setActualizarButtonState("success");
-      setTimeout(() => setActualizarButtonState("idle"), 1800);
-    });
-  } catch (e) {
-    console.error("Error preparando actualizacion:", e);
+  if (result.error()) {
+    console.error("Error al actualizar contacto:", result.error());
     setActualizarButtonState("idle");
-    alert("No se pudo preparar la actualizacion del contacto.");
+    hideDetalleLoader();
+    showToast("Error actualizando el contacto.", "error");
+    return;
+  }
+
+  row.nombre = fullName || row.nombre;
+  row.email = email || row.email;
+  row.phone = phone || row.phone;
+  row.municipioId = municipioId;
+  row.place = placeTxt || row.place;
+
+  qs("#dtl-nombre").textContent = row.nombre || "Contacto";
+  renderTabla();
+
+  setActualizarButtonState("success");
+  hideDetalleLoader();
+  showToast("Datos actualizados correctamente.");
+
+  setTimeout(() => setActualizarButtonState("idle"), 1800);
+});
+  } catch (e) {
+    setActualizarButtonState("idle");
+    hideDetalleLoader();
+    showToast("No se pudo preparar la actualización del contacto.", "error");
   }
 }

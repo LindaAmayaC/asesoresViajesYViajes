@@ -224,7 +224,7 @@
 
   <!-- ========= DETALLE CLIENTE ========= -->
   <section id="view-detalle" class="hidden">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 relative">
       <button id="btn-back" class="text-[#1d73ea] mb-4 inline-flex items-center gap-2">
         <i class="fa-solid fa-arrow-left"></i><span>Volver</span>
       </button>
@@ -250,14 +250,27 @@
 
 <h2 class="text-xl font-semibold mb-3">Campañas Activas</h2>
       <div id="dtl-cards" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-    </div>
 
+      <div id="detalle-loader"
+  class="absolute inset-0 hidden items-center justify-center bg-white/70 backdrop-blur-[2px] z-20 rounded-3xl">
+  <div class="flex flex-col items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-2xl border border-slate-100">
+    <div class="relative h-12 w-12">
+      <div class="absolute inset-0 rounded-full border-4 border-sky-100"></div>
+      <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
+    </div>
+    <div class="text-center">
+      <p class="text-sm font-semibold text-slate-900">Actualizando datos</p>
+      <p class="text-xs text-slate-500 mt-1">Guardando información del cliente...</p>
+    </div>
+  </div>
+</div>
+    </div>
 
   </section>
 
   <!-- ========= MODAL ========= -->
 <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
-  <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
+  <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden relative">
     <div class="bg-gradient-to-r from-[#2f67f6] to-[#2fc7e8] text-white px-8 py-6">
       <div class="flex items-center justify-between">
         <h4 id="md-titulo" class="text-2xl font-bold">Nombre campaña</h4>
@@ -335,7 +348,22 @@
         Guardar
       </button>
     </div>
+   
   </div>
+<div id="modal-loader"
+  class="absolute inset-0 hidden items-center justify-center bg-white/90 backdrop-blur-md z-50 rounded-3xl transition-all duration-200">
+
+  <div class="flex flex-col items-center gap-3 bg-white px-6 py-5 rounded-2xl shadow-2xl border border-slate-100">
+    <div class="relative h-12 w-12">
+      <div class="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+      <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
+    </div>
+
+    <div class="text-sm font-semibold text-slate-800">
+      Guardando información...
+    </div>
+  </div>
+</div>
 </div>
 
 <!-- Loader global -->
