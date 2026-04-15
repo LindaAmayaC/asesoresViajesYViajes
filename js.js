@@ -19,8 +19,8 @@ let STATE = {
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
 let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
-const DISABLE_LOGIN = true;
-
+const DISABLE_LOGIN = false;
+let USER_MAP = {}; // ID -> Nombre completo
 function loadCardStatusMap() {
   try {
     return JSON.parse(localStorage.getItem(LS_CARD_STATUS_KEY) || "{}");
@@ -237,6 +237,32 @@ function loadCampanaEnum() {
   });
 }
 
+async function loadUsersMap() {
+  try {
+    const users = await bxList("user.get", {
+      select: ["ID", "NAME", "LAST_NAME", "SECOND_NAME", "EMAIL"],
+    });
+
+    USER_MAP = {};
+
+    users.forEach((u) => {
+      const id = String(u.ID || "");
+      const nombre = [u.NAME, u.LAST_NAME]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      USER_MAP[id] = {
+        nombre: nombre || `Asesor ${id}`,
+        email: u.EMAIL || "",
+      };
+    });
+  } catch (e) {
+    console.warn("No se pudo cargar user.get. Se usarán IDs.", e);
+    USER_MAP = {};
+  }
+}
+
 function normalizeMultiValue(value) {
   if (Array.isArray(value)) return value.filter(Boolean).map((v) => String(v));
   if (value === null || value === undefined || value === "") return [];
@@ -249,10 +275,12 @@ function campanaIdsToTexts(values) {
     .filter(Boolean);
 }
 
+
 async function loadContactosFromBitrix() {
   const contacts = await bxList("crm.contact.list", {
     filter: {
       "!UF_CRM_1768059328177": false,
+      ...(STATE.asesorId ? { ASSIGNED_BY_ID: STATE.asesorId } : {}),
     },
     select: [
       "ID",
@@ -269,7 +297,9 @@ async function loadContactosFromBitrix() {
 
   STATE.rows = contacts.map((c) => {
     const id = String(c.ID || "");
-    const nombre = [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
+    const asesorId = String(c.ASSIGNED_BY_ID || "");
+    const nombre =
+      [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
     const phoneArr = Array.isArray(c.PHONE) ? c.PHONE : [];
     const emailArr = Array.isArray(c.EMAIL) ? c.EMAIL : [];
     const phone = phoneArr[0]?.VALUE || "";
@@ -279,19 +309,20 @@ async function loadContactosFromBitrix() {
     const campanaTexts = campanaIdsToTexts(campanaIds);
 
     return {
-      id,
-      contactId: id,
-      nombre,
-      asesor: String(c.ASSIGNED_BY_ID || ""),
-      email,
-      phone,
-      place: MUNICIPIO_ENUM[String(municipioId)] || "",
-      municipioId,
-      campanaIds,
-      campanaTexts,
-      campanaFila: campanaTexts[0] || "-",
-      estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
-    };
+    id,
+    contactId: id,
+    nombre,
+    asesor: asesorId,
+    asesorNombre: USER_MAP[asesorId]?.nombre || `Asesor ${asesorId}`,
+    email,
+    phone,
+    place: MUNICIPIO_ENUM[String(municipioId)] || "",
+    municipioId,
+    campanaIds,
+    campanaTexts,
+    campanaFila: campanaTexts[0] || "-",
+    estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
+  };
   });
 
   STATE.campanasDisponibles = [
@@ -299,9 +330,21 @@ async function loadContactosFromBitrix() {
   ].sort((a, b) => a.localeCompare(b));
 
   STATE.asesoresDisponibles = [
-    ...new Set(STATE.rows.map((r) => r.asesor).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
+  ...new Map(
+    STATE.rows
+      .filter((r) => r.asesor)
+      .map((r) => [
+        r.asesor,
+        {
+          id: r.asesor,
+          nombre: r.asesorNombre,
+          email: r.asesorEmail,
+        },
+      ])
+  ).values(),
+].sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
+
 function fetchProductoCampanaByNombre(nombreCampana) {
   return new Promise((resolve, reject) => {
     if (!nombreCampana) {
@@ -404,28 +447,33 @@ function clearLoginError() {
   el.classList.add("hidden");
 }
 
-async function validateAsesorSecondName(value) {
-  const term = String(value || "").trim();
+async function validateAsesorEmail(value) {
+  const term = String(value || "").trim().toLowerCase();
   if (!term) return false;
 
   try {
     const users = await bxList("user.get", {
-      filter: { SECOND_NAME: term },
-      select: ["ID", "SECOND_NAME"],
+      filter: { EMAIL: term },
+      select: ["ID", "EMAIL", "NAME", "LAST_NAME"],
     });
+
     const match = users.find(
-      (u) =>
-        String(u.SECOND_NAME || "")
-          .trim()
-          .toLowerCase() === term.toLowerCase(),
+      (u) => String(u.EMAIL || "").trim().toLowerCase() === term
     );
+
     if (!match) return null;
-    return { id: String(match.ID || ""), secondName: match.SECOND_NAME || "" };
+
+    return {
+      id: String(match.ID || ""),
+      email: String(match.EMAIL || "").trim(),
+      nombre: [match.NAME, match.LAST_NAME].filter(Boolean).join(" ").trim(),
+    };
   } catch (e) {
-    console.error("Error validando asesor en Bitrix24:", e);
+    console.error("Error validando asesor por email en Bitrix24:", e);
     return null;
   }
 }
+
 function getBitrixPropValue(prop) {
   if (!prop) return "";
   if (Array.isArray(prop)) {
@@ -623,15 +671,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (window.BX24) {
           await new Promise((resolve) => BX24.init(resolve));
+        showGlobalLoader("Cargando municipios...");
+        await loadMunicipioEnum();
 
-          showGlobalLoader("Cargando municipios...");
-          await loadMunicipioEnum();
+        showGlobalLoader("Cargando campanas...");
+        await loadCampanaEnum();
 
-          showGlobalLoader("Cargando campanas...");
-          await loadCampanaEnum();
+        showGlobalLoader("Cargando asesores...");
+        await loadUsersMap(); 
 
-          showGlobalLoader("Cargando contactos...");
-          await loadContactosFromBitrix();
+        showGlobalLoader("Cargando contactos...");
+        await loadContactosFromBitrix(); 
+
         } else {
           console.warn("BX24 no esta definido. Front sin datos reales.");
         }
@@ -646,10 +697,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     })();
     return;
+    
   }
+    hideById("#view-home");
+    showById("#view-login");
 
   const btnLogin = qs("#btn-login");
   const asesorInput = qs("#in-asesor");
+
+
 
   if (!btnLogin) {
     console.error("No se encontro el boton #btn-login");
@@ -684,9 +740,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       await new Promise((resolve) => BX24.init(resolve));
-      const user = await validateAsesorSecondName(n);
+      const user = await validateAsesorEmail(n);
       if (!user || !user.id) {
-        setLoginError("No encontramos ese asesor en Bitrix24 (campo SECOND_NAME).");
+        setLoginError("No encontramos ese asesor en Bitrix24 con ese correo.");
         hideGlobalLoader();
         return;
       }
@@ -703,6 +759,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       showGlobalLoader("Cargando campanas...");
       await loadCampanaEnum();
+
+      showGlobalLoader("Cargando asesores...");
+      await loadUsersMap();
 
       showGlobalLoader("Cargando contactos...");
       await loadContactosFromBitrix();
@@ -771,7 +830,10 @@ function initHome() {
     } else {
       if (trigger) trigger.disabled = false;
       initMultiSelect(msAses, {
-        options: STATE.asesoresDisponibles.map((a) => ({ value: a, label: `Asesor ${a}` })),
+        options: STATE.asesoresDisponibles.map((a) => ({
+          value: a.id,
+          label: a.email ? `${a.nombre} (${a.email})` : a.nombre,
+        })),
         selected: STATE.filtros.asesores,
         placeholder: "Selecciona asesores",
         onChange: (set) => {
@@ -839,6 +901,7 @@ function applyFilters(rows) {
         (r.email || "").toLowerCase().includes(term) ||
         (r.phone || "").toLowerCase().includes(term) ||
         (r.place || "").toLowerCase().includes(term) ||
+        (r.asesorNombre || "").toLowerCase().includes(term) || // 👈 ESTE ES EL NUEVO
         campanas.includes(term)
       );
     });
