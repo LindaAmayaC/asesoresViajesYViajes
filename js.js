@@ -1,10 +1,10 @@
-
 /*************************************************
  * 0) Estado global
  *************************************************/
 let STATE = {
-  asesorActual: "", // ya no se usa para filtrar en Bitrix
+  asesorActual: "",
   asesorId: "",
+  isAdmin: false,
   filtros: {
     campanas: new Set(),
     asesores: new Set(),
@@ -12,14 +12,14 @@ let STATE = {
     fin: "",
   },
   search: "",
-  rows: [], // filas para la tabla (contactos)
+  rows: [],
   campanasDisponibles: [],
   asesoresDisponibles: [],
 };
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
 let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
-const DISABLE_LOGIN = false;
+const DISABLE_LOGIN = true;
 let USER_MAP = {}; // ID -> Nombre completo
 function loadCardStatusMap() {
   try {
@@ -33,7 +33,9 @@ function saveCardStatusMap(map) {
 }
 
 function getCardStatusKey(contactId, campana) {
-  return `${String(contactId)}::${String(campana || "").trim().toLowerCase()}`;
+  return `${String(contactId)}::${String(campana || "")
+    .trim()
+    .toLowerCase()}`;
 }
 
 function showToast(message = "", type = "success") {
@@ -41,7 +43,8 @@ function showToast(message = "", type = "success") {
   if (!toast) {
     toast = document.createElement("div");
     toast.id = "vyv-toast";
-    toast.className = "fixed top-5 right-5 z-[9999] hidden min-w-[280px] max-w-[420px] rounded-2xl px-4 py-3 shadow-2xl border text-sm font-medium transition-all";
+    toast.className =
+      "fixed top-5 right-5 z-[9999] hidden min-w-[280px] max-w-[420px] rounded-2xl px-4 py-3 shadow-2xl border text-sm font-medium transition-all";
     document.body.appendChild(toast);
   }
 
@@ -117,6 +120,23 @@ function hideModalLoader() {
   el.classList.add("hidden");
   el.classList.remove("flex");
 }
+function resetState() {
+  STATE = {
+    asesorActual: "",
+    asesorId: "",
+    isAdmin: false,
+    filtros: {
+      campanas: new Set(),
+      asesores: new Set(),
+      inicio: "",
+      fin: "",
+    },
+    search: "",
+    rows: [],
+    campanasDisponibles: [],
+    asesoresDisponibles: [],
+  };
+}
 /*************************************************
  * helpers DOM
  *************************************************/
@@ -124,6 +144,19 @@ const qs = (s, ctx = document) => ctx.querySelector(s);
 const qsa = (s, ctx = document) => [...ctx.querySelectorAll(s)];
 const showById = (id) => qs(id)?.classList.remove("hidden");
 const hideById = (id) => qs(id)?.classList.add("hidden");
+
+qs("#btn-logout")?.addEventListener("click", () => {
+  resetState();
+
+  // limpiar input
+  const input = qs("#in-asesor");
+  if (input) input.value = "";
+
+  // navegación
+  hideById("#view-home");
+  hideById("#view-detalle");
+  showById("#view-login");
+});
 
 const chipEstado = (texto) => {
   const base =
@@ -247,10 +280,7 @@ async function loadUsersMap() {
 
     users.forEach((u) => {
       const id = String(u.ID || "");
-      const nombre = [u.NAME, u.LAST_NAME]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
+      const nombre = [u.NAME, u.LAST_NAME].filter(Boolean).join(" ").trim();
 
       USER_MAP[id] = {
         nombre: nombre || `Asesor ${id}`,
@@ -271,16 +301,17 @@ function normalizeMultiValue(value) {
 
 function campanaIdsToTexts(values) {
   return normalizeMultiValue(values)
-    .map((id) => CAMPANA_ENUM[String(id)] || String(id))
+    .map((id) => CAMPANA_ENUM[String(id)] || "")
     .filter(Boolean);
 }
-
 
 async function loadContactosFromBitrix() {
   const contacts = await bxList("crm.contact.list", {
     filter: {
       "!UF_CRM_1768059328177": false,
-      ...(STATE.asesorId ? { ASSIGNED_BY_ID: STATE.asesorId } : {}),
+      ...(!STATE.isAdmin && STATE.asesorId
+        ? { ASSIGNED_BY_ID: STATE.asesorId }
+        : {}),
     },
     select: [
       "ID",
@@ -309,20 +340,20 @@ async function loadContactosFromBitrix() {
     const campanaTexts = campanaIdsToTexts(campanaIds);
 
     return {
-    id,
-    contactId: id,
-    nombre,
-    asesor: asesorId,
-    asesorNombre: USER_MAP[asesorId]?.nombre || `Asesor ${asesorId}`,
-    email,
-    phone,
-    place: MUNICIPIO_ENUM[String(municipioId)] || "",
-    municipioId,
-    campanaIds,
-    campanaTexts,
-    campanaFila: campanaTexts[0] || "-",
-    estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
-  };
+      id,
+      contactId: id,
+      nombre,
+      asesor: asesorId,
+      asesorNombre: USER_MAP[asesorId]?.nombre || `Asesor ${asesorId}`,
+      email,
+      phone,
+      place: MUNICIPIO_ENUM[String(municipioId)] || "",
+      municipioId,
+      campanaIds,
+      campanaTexts,
+      campanaFila: campanaTexts[0] || "-",
+      estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
+    };
   });
 
   STATE.campanasDisponibles = [
@@ -330,19 +361,18 @@ async function loadContactosFromBitrix() {
   ].sort((a, b) => a.localeCompare(b));
 
   STATE.asesoresDisponibles = [
-  ...new Map(
-    STATE.rows
-      .filter((r) => r.asesor)
-      .map((r) => [
-        r.asesor,
-        {
-          id: r.asesor,
-          nombre: r.asesorNombre,
-          email: r.asesorEmail,
-        },
-      ])
-  ).values(),
-].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    ...new Map(
+      STATE.rows
+        .filter((r) => r.asesor)
+        .map((r) => [
+          r.asesor,
+          {
+            id: r.asesor,
+            nombre: r.asesorNombre,
+          },
+        ]),
+    ).values(),
+  ].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
 }
 
 function fetchProductoCampanaByNombre(nombreCampana) {
@@ -378,7 +408,7 @@ function fetchProductoCampanaByNombre(nombreCampana) {
 
         const items = result.data() || [];
         resolve(items[0] || null);
-      }
+      },
     );
   });
 }
@@ -448,17 +478,19 @@ function clearLoginError() {
 }
 
 async function validateAsesorEmail(value) {
-  const term = String(value || "").trim().toLowerCase();
-  if (!term) return false;
+  const term = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!term) return null;
 
   try {
     const users = await bxList("user.get", {
-      filter: { EMAIL: term },
-      select: ["ID", "EMAIL", "NAME", "LAST_NAME"],
+      select: ["ID", "EMAIL", "NAME", "LAST_NAME", "ADMIN"],
     });
 
     const match = users.find(
-      (u) => String(u.EMAIL || "").trim().toLowerCase() === term
+      (u) => String(u.EMAIL || "").trim().toLowerCase() === term,
     );
 
     if (!match) return null;
@@ -467,6 +499,10 @@ async function validateAsesorEmail(value) {
       id: String(match.ID || ""),
       email: String(match.EMAIL || "").trim(),
       nombre: [match.NAME, match.LAST_NAME].filter(Boolean).join(" ").trim(),
+      isAdmin:
+        match.ADMIN === true ||
+        String(match.ADMIN || "").toUpperCase() === "Y" ||
+        String(match.ADMIN || "").toLowerCase() === "true",
     };
   } catch (e) {
     console.error("Error validando asesor por email en Bitrix24:", e);
@@ -664,13 +700,38 @@ document.addEventListener("DOMContentLoaded", () => {
   if (DISABLE_LOGIN) {
     (async () => {
       try {
+        await new Promise((resolve) => BX24.init(resolve));
+
+        const currentUser = await new Promise((resolve, reject) => {
+          BX24.callMethod("user.current", {}, (res) => {
+            if (res.error && res.error()) {
+              reject(res.error());
+              return;
+            }
+            resolve(res.data());
+          });
+        });
+
+        if (!currentUser || !currentUser.ID) {
+          setLoginError("No fue posible obtener el usuario actual de Bitrix24.");
+          hideGlobalLoader();
+          return;
+        }
+
+        const currentEmail = String(currentUser.EMAIL || "").trim().toLowerCase();
+        const currentName = [currentUser.NAME, currentUser.LAST_NAME]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+        STATE.isAdmin = !!BX24.isAdmin();
+        STATE.asesorActual = currentEmail || currentName || `Usuario ${currentUser.ID}`;
+        STATE.asesorId = String(currentUser.ID || "");
+
+        showGlobalLoader("Cargando informacion...");
         hideById("#view-login");
         showById("#view-home");
 
-        showGlobalLoader("Cargando informacion...");
-
-        if (window.BX24) {
-          await new Promise((resolve) => BX24.init(resolve));
         showGlobalLoader("Cargando municipios...");
         await loadMunicipioEnum();
 
@@ -678,79 +739,83 @@ document.addEventListener("DOMContentLoaded", () => {
         await loadCampanaEnum();
 
         showGlobalLoader("Cargando asesores...");
-        await loadUsersMap(); 
+        await loadUsersMap();
 
         showGlobalLoader("Cargando contactos...");
-        await loadContactosFromBitrix(); 
+        await loadContactosFromBitrix();
 
-        } else {
-          console.warn("BX24 no esta definido. Front sin datos reales.");
-        }
+        console.log("Login Bitrix automático", {
+          asesorId: STATE.asesorId,
+          email: currentEmail,
+          isAdmin: STATE.isAdmin,
+          currentUser,
+        });
 
         showGlobalLoader("Preparando vista...");
         initHome();
       } catch (e) {
-        console.error("Error iniciando en HOME (login desactivado):", e);
+        console.error("Error en login automatico Bitrix:", e);
+        alert("Error cargando la app con el usuario actual de Bitrix24. Revisa la consola.");
         initHome();
       } finally {
         hideGlobalLoader();
       }
     })();
     return;
-    
   }
-    hideById("#view-home");
-    showById("#view-login");
+  hideById("#view-home");
+  showById("#view-login");
 
   const btnLogin = qs("#btn-login");
   const asesorInput = qs("#in-asesor");
-
-
 
   if (!btnLogin) {
     console.error("No se encontro el boton #btn-login");
     return;
   }
 
-  if (asesorInput) asesorInput.addEventListener("input", () => clearLoginError());
+  if (asesorInput)
+    asesorInput.addEventListener("input", () => clearLoginError());
 
   btnLogin.addEventListener("click", async () => {
-    const n = asesorInput?.value.trim() || "";
     clearLoginError();
-    if (!n) {
-      setLoginError("Ingresa tu numero de asesor para continuar.");
-      return;
-    }
 
     if (!window.BX24) {
-      console.warn("BX24 no esta definido. Front sin datos reales.");
-      alert("No se encontro BX24. Estas viendo solo el front sin datos reales.");
-
-      STATE.asesorActual = n;
-      STATE.asesorId = "";
-      showGlobalLoader("Cargando informacion...");
-      hideById("#view-login");
-      showById("#view-home");
-      initHome();
-      hideGlobalLoader();
+      alert("No se encontro BX24. Esta app debe ejecutarse dentro de Bitrix24.");
       return;
     }
 
-    showGlobalLoader("Validando asesor...");
+    showGlobalLoader("Accediendo con tu usuario de Bitrix24...");
 
     try {
       await new Promise((resolve) => BX24.init(resolve));
-      const user = await validateAsesorEmail(n);
-      if (!user || !user.id) {
-        setLoginError("No encontramos ese asesor en Bitrix24 con ese correo.");
+
+      const currentUser = await new Promise((resolve, reject) => {
+        BX24.callMethod("user.current", {}, (res) => {
+          if (res.error && res.error()) {
+            reject(res.error());
+            return;
+          }
+          resolve(res.data());
+        });
+      });
+
+      if (!currentUser || !currentUser.ID) {
+        setLoginError("No fue posible obtener el usuario actual de Bitrix24.");
         hideGlobalLoader();
         return;
       }
 
-      STATE.asesorActual = n;
-      STATE.asesorId = user.id;
+      const currentEmail = String(currentUser.EMAIL || "").trim().toLowerCase();
+      const currentName = [currentUser.NAME, currentUser.LAST_NAME]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
 
-      showGlobalLoader("Cargando informacion...");
+      STATE.isAdmin = !!BX24.isAdmin();
+      STATE.asesorActual = currentEmail || currentName || `Usuario ${currentUser.ID}`;
+      STATE.asesorId = String(currentUser.ID || "");
+
       hideById("#view-login");
       showById("#view-home");
 
@@ -766,11 +831,18 @@ document.addEventListener("DOMContentLoaded", () => {
       showGlobalLoader("Cargando contactos...");
       await loadContactosFromBitrix();
 
+      console.log("Login Bitrix manual->automático", {
+        asesorId: STATE.asesorId,
+        email: currentEmail,
+        isAdmin: STATE.isAdmin,
+        currentUser,
+      });
+
       showGlobalLoader("Preparando vista...");
       initHome();
     } catch (e) {
-      console.error("Error al cargar crm.contact.list:", e);
-      alert("Error cargando contactos desde Bitrix24. Revisa la consola.");
+      console.error("Error cargando app desde usuario actual Bitrix:", e);
+      alert("Error cargando la app con el usuario actual de Bitrix24. Revisa la consola.");
       initHome();
     } finally {
       hideGlobalLoader();
@@ -810,7 +882,8 @@ function initHome() {
         selected: STATE.filtros.campanas,
         placeholder: "Selecciona opciones",
         onChange: (set) => {
-          STATE.filtros.campanas = set instanceof Set ? set : new Set(set || []);
+          STATE.filtros.campanas =
+            set instanceof Set ? set : new Set(set || []);
         },
       });
     }
@@ -832,12 +905,13 @@ function initHome() {
       initMultiSelect(msAses, {
         options: STATE.asesoresDisponibles.map((a) => ({
           value: a.id,
-          label: a.email ? `${a.nombre} (${a.email})` : a.nombre,
+          label: a.nombre,
         })),
         selected: STATE.filtros.asesores,
         placeholder: "Selecciona asesores",
         onChange: (set) => {
-          STATE.filtros.asesores = set instanceof Set ? set : new Set(set || []);
+          STATE.filtros.asesores =
+            set instanceof Set ? set : new Set(set || []);
         },
       });
     }
@@ -845,8 +919,16 @@ function initHome() {
 
   const fxInicio = qs("#fx-inicio");
   const fxFin = qs("#fx-fin");
-  if (fxInicio) fxInicio.addEventListener("change", (e) => (STATE.filtros.inicio = e.target.value));
-  if (fxFin) fxFin.addEventListener("change", (e) => (STATE.filtros.fin = e.target.value));
+  if (fxInicio)
+    fxInicio.addEventListener(
+      "change",
+      (e) => (STATE.filtros.inicio = e.target.value),
+    );
+  if (fxFin)
+    fxFin.addEventListener(
+      "change",
+      (e) => (STATE.filtros.fin = e.target.value),
+    );
 
   const btnFiltros = qs("#btn-filtros");
   const btnCloseDrawer = qs("#btn-close-drawer");
@@ -855,7 +937,8 @@ function initHome() {
 
   if (btnFiltros) btnFiltros.addEventListener("click", openDrawer);
   if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeDrawer);
-  if (btnCancelarFiltros) btnCancelarFiltros.addEventListener("click", closeDrawer);
+  if (btnCancelarFiltros)
+    btnCancelarFiltros.addEventListener("click", closeDrawer);
   if (btnAplicarFiltros) {
     btnAplicarFiltros.addEventListener("click", () => {
       closeDrawer();
@@ -870,7 +953,9 @@ function openDrawer() {
   const d = qs("#drawer");
   if (!d) return;
   d.classList.remove("hidden");
-  requestAnimationFrame(() => d.classList.replace("translate-x-full", "translate-x-0"));
+  requestAnimationFrame(() =>
+    d.classList.replace("translate-x-full", "translate-x-0"),
+  );
 }
 function closeDrawer() {
   const d = qs("#drawer");
@@ -884,7 +969,9 @@ function applyFilters(rows) {
 
   if (STATE.filtros.campanas && STATE.filtros.campanas.size) {
     const set = new Set([...STATE.filtros.campanas].map(norm));
-    rows = rows.filter((r) => (r.campanaTexts || []).some((c) => set.has(norm(c))));
+    rows = rows.filter((r) =>
+      (r.campanaTexts || []).some((c) => set.has(norm(c))),
+    );
   }
 
   if (STATE.filtros.asesores && STATE.filtros.asesores.size) {
@@ -922,8 +1009,7 @@ function renderCampanasCell(campanas = []) {
     return visibles.join(", ");
   }
 
-  const campanasJson = JSON.stringify(campanas)
-    .replace(/"/g, "&quot;");
+  const campanasJson = JSON.stringify(campanas).replace(/"/g, "&quot;");
 
   return `
     <span id="${id}">
@@ -972,7 +1058,10 @@ function renderCampanasCell(campanas = []) {
     .join("");
 
   const tooltipHtml = campanas
-    .map((c) => `<div class="text-xs text-slate-700 leading-5">${escapeHtml(c)}</div>`)
+    .map(
+      (c) =>
+        `<div class="text-xs text-slate-700 leading-5">${escapeHtml(c)}</div>`,
+    )
     .join("");
 
   if (restantes <= 0) {
@@ -1026,7 +1115,6 @@ function expandCampanas(id, campanas) {
   `;
 }
 
-
 function renderTabla() {
   const tbody = qs("#tbody-clientes");
   if (!tbody) return;
@@ -1039,12 +1127,12 @@ function renderTabla() {
     return;
   }
 
-rows.forEach((r) => {
-  const campanaTexto = renderCampanasCell(r.campanaTexts || []);
-  const tr = document.createElement("tr");
-  tr.className = "border-b last:border-b-0 hover:bg-gray-50";
+  rows.forEach((r) => {
+    const campanaTexto = renderCampanasCell(r.campanaTexts || []);
+    const tr = document.createElement("tr");
+    tr.className = "border-b last:border-b-0 hover:bg-gray-50";
 
-  tr.innerHTML = `
+    tr.innerHTML = `
     <td class="px-5 py-3">${r.nombre}</td>
     <td class="px-5 py-3 align-top overflow-hidden">${campanaTexto}</td>
     <td class="px-5 py-3 relative z-10">
@@ -1057,14 +1145,14 @@ rows.forEach((r) => {
     </td>
   `;
 
-  tr.querySelector(".btn-ver-mas")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openDetalle(r.id);
-  });
+    tr.querySelector(".btn-ver-mas")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openDetalle(r.id);
+    });
 
-  tbody.appendChild(tr);
-});
+    tbody.appendChild(tr);
+  });
 }
 
 /*************************************************
@@ -1087,19 +1175,19 @@ function openDetalle(id) {
   qs("#dtl-phone").value = row.phone || "";
 
   fillMunicipioSelect(row.municipioId || "");
-const btnToggle = document.getElementById("btn-toggle-campanas");
+  const btnToggle = document.getElementById("btn-toggle-campanas");
 
-if (btnToggle) {
-  btnToggle.onclick = () => {
-    SHOW_ALL_CAMPAIGNS = !SHOW_ALL_CAMPAIGNS;
+  if (btnToggle) {
+    btnToggle.onclick = () => {
+      SHOW_ALL_CAMPAIGNS = !SHOW_ALL_CAMPAIGNS;
 
-    btnToggle.textContent = SHOW_ALL_CAMPAIGNS
-      ? "Ocultar campañas completadas"
-      : "Ver todas las campañas";
+      btnToggle.textContent = SHOW_ALL_CAMPAIGNS
+        ? "Ocultar campañas completadas"
+        : "Ver todas las campañas";
 
-    renderCampaignCardsByContact(row.contactId);
-  };
-}
+      renderCampaignCardsByContact(row.contactId);
+    };
+  }
   const btnActualizar = document.getElementById("btn-actualizar-contacto");
   if (btnActualizar) {
     btnActualizar.onclick = () => {
@@ -1160,26 +1248,30 @@ async function renderCampaignCardsByContact(contactId) {
     return;
   }
 
-  if (STATE.asesorId && String(contact.ASSIGNED_BY_ID || "") !== STATE.asesorId) {
+  if (
+    !STATE.isAdmin &&
+    STATE.asesorId &&
+    String(contact.ASSIGNED_BY_ID || "") !== STATE.asesorId
+  ) {
     wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no está asignado a tu usuario.</div>`;
     return;
   }
 
   const campanasTodas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
 
-const statusMap = loadCardStatusMap();
+  const statusMap = loadCardStatusMap();
 
-const campanas = campanasTodas.filter((campanaTxt) => {
-  const key = getCardStatusKey(contactId, campanaTxt);
-  const estado = statusMap[key];
+  const campanas = campanasTodas.filter((campanaTxt) => {
+    const key = getCardStatusKey(contactId, campanaTxt);
+    const estado = statusMap[key];
 
-  // si NO estamos mostrando todas → ocultar completadas
-  if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") {
-    return false;
-  }
+    // si NO estamos mostrando todas → ocultar completadas
+    if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") {
+      return false;
+    }
 
-  return true;
-});
+    return true;
+  });
 
   if (!campanas.length) {
     wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no tiene campañas activas.</div>`;
@@ -1203,13 +1295,14 @@ const campanas = campanasTodas.filter((campanaTxt) => {
 
     const fechaInicio = formatFechaBitrix(fechaInicioRaw);
     const fechaFin = formatFechaBitrix(fechaFinRaw);
-   const estadoCampana = estadoRaw || "Sin estado";
+    const estadoCampana = estadoRaw || "Sin estado";
     const statusMap = loadCardStatusMap();
     const cardKey = getCardStatusKey(contactId, campanaTxt);
     const estadoSeguimiento = statusMap[cardKey] || "Por completar";
 
     const card = document.createElement("div");
-    card.className = "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
+    card.className =
+      "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
 
     card.innerHTML = `
       <div class="flex items-start justify-between">
@@ -1224,12 +1317,12 @@ const campanas = campanasTodas.filter((campanaTxt) => {
 
       <div class="mt-6 flex items-center justify-between">
       <div class="text-sm font-medium ${
-  estadoSeguimiento === "Completado"
-    ? "text-green-600"
-    : estadoSeguimiento === "Seguimiento"
-    ? "text-blue-600"
-    : "text-orange-500"
-}">
+        estadoSeguimiento === "Completado"
+          ? "text-green-600"
+          : estadoSeguimiento === "Seguimiento"
+            ? "text-blue-600"
+            : "text-orange-500"
+      }">
   ${estadoSeguimiento}
 </div>
 
@@ -1254,7 +1347,6 @@ const campanas = campanasTodas.filter((campanaTxt) => {
     wrap.appendChild(card);
   }
 }
-
 
 // ===== MODAL CAMPAÑA =====
 
@@ -1292,7 +1384,7 @@ function openCampanaModal(ctx) {
 
   qs("#md-titulo").textContent = ctx?.nombre || "Detalle campaña";
   qs("#md-inicio-text").textContent = formatFechaBitrix(fechaInicioRaw);
-qs("#md-fin-text").textContent = formatFechaBitrix(fechaFinRaw);
+  qs("#md-fin-text").textContent = formatFechaBitrix(fechaFinRaw);
   qs("#md-notas").value = "";
 
   qsa("[data-estado]").forEach((btn) => {
@@ -1331,10 +1423,17 @@ function formatNowForLog() {
 }
 
 function findEnumOptionByValue(list = [], value = "") {
-  const target = String(value || "").trim().toLowerCase();
-  return list.find(
-    (item) => String(item.VALUE || "").trim().toLowerCase() === target
-  ) || null;
+  const target = String(value || "")
+    .trim()
+    .toLowerCase();
+  return (
+    list.find(
+      (item) =>
+        String(item.VALUE || "")
+          .trim()
+          .toLowerCase() === target,
+    ) || null
+  );
 }
 
 function getContactUserfieldByName(fieldName) {
@@ -1354,7 +1453,7 @@ function getContactUserfieldByName(fieldName) {
 
         const rows = result.data() || [];
         resolve(rows[0] || null);
-      }
+      },
     );
   });
 }
@@ -1384,7 +1483,7 @@ function updateContactUserfieldList(fieldId, currentList, newValue) {
         }
 
         resolve(true);
-      }
+      },
     );
   });
 }
@@ -1406,7 +1505,7 @@ function getDealUserfieldByName(fieldName) {
 
         const rows = result.data() || [];
         resolve(rows[0] || null);
-      }
+      },
     );
   });
 }
@@ -1436,7 +1535,7 @@ function updateDealUserfieldList(fieldId, currentList, newValue) {
         }
 
         resolve(true);
-      }
+      },
     );
   });
 }
@@ -1451,7 +1550,11 @@ async function ensureDealEnumOption(fieldCode, valueText) {
   let option = findEnumOptionByValue(userField.LIST || [], valueText);
 
   if (!option) {
-    await updateDealUserfieldList(userField.ID, userField.LIST || [], valueText);
+    await updateDealUserfieldList(
+      userField.ID,
+      userField.LIST || [],
+      valueText,
+    );
 
     const refreshedField = await getDealUserfieldByName(fieldCode);
     option = findEnumOptionByValue(refreshedField?.LIST || [], valueText);
@@ -1466,21 +1569,16 @@ async function ensureDealEnumOption(fieldCode, valueText) {
 
 function createDeal(fields) {
   return new Promise((resolve, reject) => {
-    BX24.callMethod(
-      "crm.deal.add",
-      { fields },
-      (result) => {
-        if (result.error()) {
-          reject(result.error());
-          return;
-        }
-
-        resolve(result.data());
+    BX24.callMethod("crm.deal.add", { fields }, (result) => {
+      if (result.error()) {
+        reject(result.error());
+        return;
       }
-    );
+
+      resolve(result.data());
+    });
   });
 }
-
 
 async function createInteresadoDeal({
   contactId,
@@ -1496,7 +1594,8 @@ async function createInteresadoDeal({
 
   const campanaOptionId = await ensureDealEnumOption(dealCampanaField, campana);
 
-  const title = `${String(nombreCliente || "").trim()} - ${String(campana || "").trim()}`.trim();
+  const title =
+    `${String(nombreCliente || "").trim()} - ${String(campana || "").trim()}`.trim();
 
   const fields = {
     TITLE: title,
@@ -1543,7 +1642,7 @@ async function updateContactEnumValue(contactId, fieldCode, enumId) {
         }
 
         resolve(true);
-      }
+      },
     );
   });
 }
@@ -1576,84 +1675,85 @@ qs("#md-guardar")?.addEventListener("click", async () => {
   const resumen = notas
     ? `${campana} - ${estadoCliente} - ${notas} - ${fechaActual}`
     : `${campana} - ${estadoCliente} - ${fechaActual}`;
-    
+
   try {
-    
-     setModalGuardarState("loading");
-     showModalLoader();
+    setModalGuardarState("loading");
+    showModalLoader();
     const fieldCode = "UF_CRM_1776206743575";
 
     const userField = await getContactUserfieldByName(fieldCode);
 
     if (!userField?.ID) {
-  showToast(`No se encontró el campo ${fieldCode}.`, "error");
-  setModalGuardarState("idle");
-  hideModalLoader();
-  return;
-}
+      showToast(`No se encontró el campo ${fieldCode}.`, "error");
+      setModalGuardarState("idle");
+      hideModalLoader();
+      return;
+    }
 
     let option = findEnumOptionByValue(userField.LIST || [], resumen);
 
     if (!option) {
-      await updateContactUserfieldList(userField.ID, userField.LIST || [], resumen);
+      await updateContactUserfieldList(
+        userField.ID,
+        userField.LIST || [],
+        resumen,
+      );
 
       const refreshedField = await getContactUserfieldByName(fieldCode);
       option = findEnumOptionByValue(refreshedField?.LIST || [], resumen);
     }
 
-  if (!option?.ID) {
-  showToast("No se pudo obtener el ID de la opción creada.", "error");
-  setModalGuardarState("idle");
-  hideModalLoader();
-  return;
-}
+    if (!option?.ID) {
+      showToast("No se pudo obtener el ID de la opción creada.", "error");
+      setModalGuardarState("idle");
+      hideModalLoader();
+      return;
+    }
 
     await updateContactEnumValue(contactId, fieldCode, option.ID);
 
-if (estadoRaw === "interesado") {
-  const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
+    if (estadoRaw === "interesado") {
+      const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
 
-  await createInteresadoDeal({
-    contactId,
-    campana,
-    estadoCliente,
-    notas,
-    asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
-    nombreCliente,
-  });
-}
+      await createInteresadoDeal({
+        contactId,
+        campana,
+        estadoCliente,
+        notas,
+        asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
+        nombreCliente,
+      });
+    }
 
-const statusMap = loadCardStatusMap();
-const cardKey = getCardStatusKey(contactId, campana);
+    const statusMap = loadCardStatusMap();
+    const cardKey = getCardStatusKey(contactId, campana);
 
-if (estadoRaw === "no_interesado" || estadoRaw === "interesado") {
-  statusMap[cardKey] = "Completado";
-}
+    if (estadoRaw === "no_interesado" || estadoRaw === "interesado") {
+      statusMap[cardKey] = "Completado";
+    }
 
-if (estadoRaw === "inseguro") {
-  statusMap[cardKey] = "Seguimiento";
-}
+    if (estadoRaw === "inseguro") {
+      statusMap[cardKey] = "Seguimiento";
+    }
 
-saveCardStatusMap(statusMap);
+    saveCardStatusMap(statusMap);
 
-await renderCampaignCardsByContact(contactId);
-setModalGuardarState("success");
-hideModalLoader();
-showToast("Guardado correctamente.");
+    await renderCampaignCardsByContact(contactId);
+    setModalGuardarState("success");
+    hideModalLoader();
+    showToast("Guardado correctamente.");
 
-setTimeout(() => {
-  closeCampanaModal();
-  setModalGuardarState("idle");
-}, 500);
-
-}  catch (e) {
-  console.error("Error guardando opción dinámica:", e);
-  setModalGuardarState("idle");
-  hideModalLoader();
-  showToast("No se pudo guardar la opción dinámica en la lista.", "error");
-}
+    setTimeout(() => {
+      closeCampanaModal();
+      setModalGuardarState("idle");
+    }, 500);
+  } catch (e) {
+    console.error("Error guardando opción dinámica:", e);
+    setModalGuardarState("idle");
+    hideModalLoader();
+    showToast("No se pudo guardar la opción dinámica en la lista.", "error");
+  }
 });
-
 
 function setActualizarButtonState(state = "idle") {
   const btn = document.getElementById("btn-actualizar-contacto");
@@ -1695,7 +1795,7 @@ function setActualizarButtonState(state = "idle") {
 async function saveContactFromDetalle() {
   const row = CURRENT_CTX.row;
   if (!row || !row.contactId) {
-   showToast("No se encontró el contacto para este registro.", "error");
+    showToast("No se encontró el contacto para este registro.", "error");
     return;
   }
 
@@ -1787,30 +1887,34 @@ async function saveContactFromDetalle() {
     if (email) fields.EMAIL = emailPayload;
     if (phone) fields.PHONE = phonePayload;
 
-    BX24.callMethod("crm.contact.update", { id: row.contactId, fields }, function (result) {
-  if (result.error()) {
-    console.error("Error al actualizar contacto:", result.error());
-    setActualizarButtonState("idle");
-    hideDetalleLoader();
-    showToast("Error actualizando el contacto.", "error");
-    return;
-  }
+    BX24.callMethod(
+      "crm.contact.update",
+      { id: row.contactId, fields },
+      function (result) {
+        if (result.error()) {
+          console.error("Error al actualizar contacto:", result.error());
+          setActualizarButtonState("idle");
+          hideDetalleLoader();
+          showToast("Error actualizando el contacto.", "error");
+          return;
+        }
 
-  row.nombre = fullName || row.nombre;
-  row.email = email || row.email;
-  row.phone = phone || row.phone;
-  row.municipioId = municipioId;
-  row.place = placeTxt || row.place;
+        row.nombre = fullName || row.nombre;
+        row.email = email || row.email;
+        row.phone = phone || row.phone;
+        row.municipioId = municipioId;
+        row.place = placeTxt || row.place;
 
-  qs("#dtl-nombre").textContent = row.nombre || "Contacto";
-  renderTabla();
+        qs("#dtl-nombre").textContent = row.nombre || "Contacto";
+        renderTabla();
 
-  setActualizarButtonState("success");
-  hideDetalleLoader();
-  showToast("Datos actualizados correctamente.");
+        setActualizarButtonState("success");
+        hideDetalleLoader();
+        showToast("Datos actualizados correctamente.");
 
-  setTimeout(() => setActualizarButtonState("idle"), 1800);
-});
+        setTimeout(() => setActualizarButtonState("idle"), 1800);
+      },
+    );
   } catch (e) {
     setActualizarButtonState("idle");
     hideDetalleLoader();
