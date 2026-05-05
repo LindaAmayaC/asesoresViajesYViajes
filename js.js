@@ -19,8 +19,87 @@ let STATE = {
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
 let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
-const DISABLE_LOGIN = true;
+
 let USER_MAP = {}; // ID -> Nombre completo
+let HOME_READY = false;
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await new Promise((resolve, reject) => {
+      try {
+        BX24.init(resolve);
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+    showGlobalLoader("Iniciando módulo...");
+
+    const currentUser = await new Promise((resolve, reject) => {
+      BX24.callMethod("user.current", {}, (res) => {
+        if (res.error && res.error()) {
+          reject(res.error());
+          return;
+        }
+        resolve(res.data());
+      });
+    });
+
+    if (!currentUser || !currentUser.ID) {
+      alert("No se pudo obtener el usuario de Bitrix");
+      hideGlobalLoader();
+      return;
+    }
+
+    STATE.isAdmin = !!BX24.isAdmin();
+    STATE.asesorId = String(currentUser.ID || "");
+    STATE.asesorActual = currentUser.EMAIL || "";
+
+    showById("#view-home");
+
+    showGlobalLoader("Cargando campañas...");
+    await loadCampanaEnum();
+
+    showGlobalLoader("Preparando asesores...");
+
+    if (STATE.isAdmin) {
+      await loadUsersMap();
+    } else {
+      USER_MAP[STATE.asesorId] = {
+        nombre:
+          [currentUser.NAME, currentUser.LAST_NAME].filter(Boolean).join(" ").trim() ||
+          currentUser.EMAIL ||
+          `Asesor ${STATE.asesorId}`,
+        email: currentUser.EMAIL || "",
+      };
+    }
+
+    // Pintamos la UI primero para no dejar la app congelada.
+    showGlobalLoader("Preparando vista...");
+    initHome();
+
+    showGlobalLoader("Cargando contactos...");
+
+    loadContactosFromBitrix()
+      .then(() => {
+        // Refrescamos controles una vez ya existan campañas/asesores calculados.
+        initHome();
+        renderTabla();
+      })
+      .catch((e) => {
+        console.error("Error cargando contactos:", e);
+        showToast("No se pudieron cargar los contactos.", "error");
+      })
+      .finally(() => {
+        hideGlobalLoader();
+      });
+  } catch (e) {
+    console.error("Error iniciando app:", e);
+    alert("Error cargando la app");
+    hideGlobalLoader();
+  }
+});
+
 function loadCardStatusMap() {
   try {
     return JSON.parse(localStorage.getItem(LS_CARD_STATUS_KEY) || "{}");
@@ -145,18 +224,6 @@ const qsa = (s, ctx = document) => [...ctx.querySelectorAll(s)];
 const showById = (id) => qs(id)?.classList.remove("hidden");
 const hideById = (id) => qs(id)?.classList.add("hidden");
 
-qs("#btn-logout")?.addEventListener("click", () => {
-  resetState();
-
-  // limpiar input
-  const input = qs("#in-asesor");
-  if (input) input.value = "";
-
-  // navegación
-  hideById("#view-home");
-  hideById("#view-detalle");
-  showById("#view-login");
-});
 
 const chipEstado = (texto) => {
   const base =
@@ -182,12 +249,24 @@ const chipEstado = (texto) => {
   return `<span class="${base} bg-gray-100 text-gray-700">${raw}</span>`;
 };
 
-// === Helper Bitrix: paginacion completa (trae TODOS los registros) ===
-function bxList(method, params = {}) {
+// === Helper Bitrix PRO: paginación completa, sin límite, con pausa y progreso ===
+// Trae TODOS los registros, pero con delay entre páginas para reducir 502/503.
+// options.onProgress recibe: { method, pages, total, lastPageCount, elapsedMs }
+function bxList(method, params = {}, options = {}) {
   return new Promise((resolve, reject) => {
     let all = [];
+    let pages = 0;
+    const startedAt = Date.now();
 
-    BX24.callMethod(method, params, function (result) {
+    const delayMs =
+      Number.isFinite(options.delayMs) && options.delayMs >= 0
+        ? options.delayMs
+        : 130;
+
+    const onProgress =
+      typeof options.onProgress === "function" ? options.onProgress : () => {};
+
+    BX24.callMethod(method, params, function handler(result) {
       if (result.error()) {
         console.error(`Error en ${method}:`, result.error());
         reject(result.error());
@@ -196,9 +275,19 @@ function bxList(method, params = {}) {
 
       const data = result.data() || [];
       all = all.concat(data);
+      pages++;
+
+      onProgress({
+        method,
+        pages,
+        total: all.length,
+        lastPageCount: data.length,
+        elapsedMs: Date.now() - startedAt,
+        chunk: data,
+      });
 
       if (result.more()) {
-        result.next();
+        setTimeout(() => result.next(), delayMs);
       } else {
         resolve(all);
       }
@@ -305,57 +394,42 @@ function campanaIdsToTexts(values) {
     .filter(Boolean);
 }
 
-async function loadContactosFromBitrix() {
-  const contacts = await bxList("crm.contact.list", {
-    filter: {
-      "!UF_CRM_1768059328177": false,
-      ...(!STATE.isAdmin && STATE.asesorId
-        ? { ASSIGNED_BY_ID: STATE.asesorId }
-        : {}),
-    },
-    select: [
-      "ID",
-      "NAME",
-      "LAST_NAME",
-      "SECOND_NAME",
-      "ASSIGNED_BY_ID",
-      "UF_CRM_1722975246",
-      "UF_CRM_1768059328177",
-      "PHONE",
-      "EMAIL",
-    ],
-  });
+function mapContactFromBitrix(c) {
+  const id = String(c.ID || "");
+  const asesorId = String(c.ASSIGNED_BY_ID || "");
+  const nombre =
+    [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
 
-  STATE.rows = contacts.map((c) => {
-    const id = String(c.ID || "");
-    const asesorId = String(c.ASSIGNED_BY_ID || "");
-    const nombre =
-      [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
-    const phoneArr = Array.isArray(c.PHONE) ? c.PHONE : [];
-    const emailArr = Array.isArray(c.EMAIL) ? c.EMAIL : [];
-    const phone = phoneArr[0]?.VALUE || "";
-    const email = emailArr[0]?.VALUE || "";
-    const municipioId = c.UF_CRM_1722975246 || "";
-    const campanaIds = normalizeMultiValue(c.UF_CRM_1768059328177);
-    const campanaTexts = campanaIdsToTexts(campanaIds);
+  const municipioId = c.UF_CRM_1722975246 || "";
+  const campanaIds = normalizeMultiValue(c.UF_CRM_1768059328177);
+  let campanaTexts = campanaIdsToTexts(campanaIds);
 
-    return {
-      id,
-      contactId: id,
-      nombre,
-      asesor: asesorId,
-      asesorNombre: USER_MAP[asesorId]?.nombre || `Asesor ${asesorId}`,
-      email,
-      phone,
-      place: MUNICIPIO_ENUM[String(municipioId)] || "",
-      municipioId,
-      campanaIds,
-      campanaTexts,
-      campanaFila: campanaTexts[0] || "-",
-      estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
-    };
-  });
+campanaTexts = campanaTexts.filter((c) => {
+  if (!c) return false;
 
+  const val = c.toLowerCase().trim();
+
+  return val !== "-" && val !== "no seleccionado";
+});
+
+  return {
+    id,
+    contactId: id,
+    nombre,
+    asesor: asesorId,
+    asesorNombre: USER_MAP[asesorId]?.nombre || `Asesor ${asesorId}`,
+    email: "",
+    phone: "",
+    place: MUNICIPIO_ENUM[String(municipioId)] || "",
+    municipioId,
+    campanaIds,
+    campanaTexts,
+    campanaFila: campanaTexts[0] || "-",
+    estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
+  };
+}
+
+function rebuildDisponiblesFromRows() {
   STATE.campanasDisponibles = [
     ...new Set(STATE.rows.flatMap((r) => r.campanaTexts).filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));
@@ -373,6 +447,59 @@ async function loadContactosFromBitrix() {
         ]),
     ).values(),
   ].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+}
+
+async function loadContactosFromBitrix() {
+  resetGlobalLoaderProgress();
+
+  let partialContacts = [];
+
+  const contacts = await bxList(
+    "crm.contact.list",
+    {
+      filter: {
+        "!UF_CRM_1768059328177": false,
+        ...(!STATE.isAdmin && STATE.asesorId
+          ? { ASSIGNED_BY_ID: STATE.asesorId }
+          : {}),
+      },
+      select: [
+        "ID",
+        "NAME",
+        "LAST_NAME",
+        "ASSIGNED_BY_ID",
+        "UF_CRM_1768059328177",
+      ],
+    },
+    {
+      delayMs: 130,
+      onProgress: ({ pages, total, elapsedMs, chunk = [] }) => {
+        setGlobalLoaderProgress({ pages, total, elapsedMs, done: false });
+
+        // Acumulamos por bloques y renderizamos cada 3 páginas.
+        partialContacts = partialContacts.concat(chunk);
+
+        if (pages % 3 === 0) {
+          STATE.rows = partialContacts.map(mapContactFromBitrix);
+          rebuildDisponiblesFromRows();
+          renderTabla();
+        }
+      },
+    },
+  );
+STATE.rows = contacts
+  .map(mapContactFromBitrix)
+  .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
+  
+  rebuildDisponiblesFromRows();
+  renderTabla();
+
+  setGlobalLoaderProgress({
+    pages: Math.ceil((contacts.length || 0) / 50),
+    total: contacts.length,
+    elapsedMs: 0,
+    done: true,
+  });
 }
 
 function fetchProductoCampanaByNombre(nombreCampana) {
@@ -429,12 +556,11 @@ function fetchContactById(contactId) {
   });
 }
 
-function showGlobalLoader(text = "Cargando informacion...") {
+function showGlobalLoader(text = "Cargando información...") {
   const loader = document.getElementById("global-loader");
   if (!loader) return;
 
-  const p = loader.querySelector("p");
-  if (p) p.textContent = text;
+  setGlobalLoaderStep(text, "Por favor no cierres esta ventana mientras termina la carga.");
 
   loader.classList.remove("hidden");
   loader.classList.add("flex");
@@ -446,6 +572,52 @@ function hideGlobalLoader() {
 
   loader.classList.add("hidden");
   loader.classList.remove("flex");
+}
+
+function setGlobalLoaderStep(title = "Cargando módulo", detail = "") {
+  const titleEl = document.getElementById("global-loader-title");
+  const detailEl = document.getElementById("global-loader-detail");
+  if (titleEl) titleEl.textContent = title;
+  if (detailEl) detailEl.textContent = detail;
+}
+
+function setGlobalLoaderProgress({ pages = 0, total = 0, elapsedMs = 0, done = false } = {}) {
+  const bar = document.getElementById("global-loader-bar");
+  const txt = document.getElementById("global-loader-progress");
+  const badge = document.getElementById("global-loader-badge");
+
+  // No conocemos el total real de Bitrix antes de terminar.
+  // Por eso la barra es estimada: avanza hasta 92% y al finalizar sube a 100%.
+  const estimated = done ? 100 : Math.min(97, Math.round(15 + pages * 0.75));
+  const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+
+  if (bar) bar.style.width = `${estimated}%`;
+
+  if (txt) {
+    txt.textContent = done
+      ? `Carga completa: ${total} contactos.`
+      : `Cargando contactos: ${total} registros encontrados en ${pages} páginas.`;
+  }
+
+  if (badge) {
+    badge.textContent = done ? "100%" : `${estimated}%`;
+  }
+
+  const detail = done
+    ? `Listo. Se cargaron ${total} contactos.`
+    : `Tiempo transcurrido: ${seconds}s.`;
+
+  setGlobalLoaderStep("Cargando contactos de Bitrix", detail);
+}
+
+function resetGlobalLoaderProgress() {
+  const bar = document.getElementById("global-loader-bar");
+  const txt = document.getElementById("global-loader-progress");
+  const badge = document.getElementById("global-loader-badge");
+
+  if (bar) bar.style.width = "0%";
+  if (txt) txt.textContent = "Preparando consulta...";
+  if (badge) badge.textContent = "0%";
 }
 function showDetalleLoader() {
   const loader = document.getElementById("detalle-loader");
@@ -463,52 +635,8 @@ function hideDetalleLoader() {
   loader.classList.remove("flex");
 }
 
-function setLoginError(msg) {
-  const el = qs("#in-asesor-error");
-  if (!el) return;
-  el.textContent = msg || "";
-  el.classList.remove("hidden");
-}
 
-function clearLoginError() {
-  const el = qs("#in-asesor-error");
-  if (!el) return;
-  el.textContent = "";
-  el.classList.add("hidden");
-}
 
-async function validateAsesorEmail(value) {
-  const term = String(value || "")
-    .trim()
-    .toLowerCase();
-
-  if (!term) return null;
-
-  try {
-    const users = await bxList("user.get", {
-      select: ["ID", "EMAIL", "NAME", "LAST_NAME", "ADMIN"],
-    });
-
-    const match = users.find(
-      (u) => String(u.EMAIL || "").trim().toLowerCase() === term,
-    );
-
-    if (!match) return null;
-
-    return {
-      id: String(match.ID || ""),
-      email: String(match.EMAIL || "").trim(),
-      nombre: [match.NAME, match.LAST_NAME].filter(Boolean).join(" ").trim(),
-      isAdmin:
-        match.ADMIN === true ||
-        String(match.ADMIN || "").toUpperCase() === "Y" ||
-        String(match.ADMIN || "").toLowerCase() === "true",
-    };
-  } catch (e) {
-    console.error("Error validando asesor por email en Bitrix24:", e);
-    return null;
-  }
-}
 
 function getBitrixPropValue(prop) {
   if (!prop) return "";
@@ -524,8 +652,23 @@ function getBitrixPropValue(prop) {
 function formatFechaBitrix(value) {
   if (!value) return "-";
 
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
+  const raw = String(value).trim();
+
+  // Evita desfase de 1 día por zona horaria cuando Bitrix envía YYYY-MM-DD.
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    const d = new Date(Number(year), Number(month) - 1, Number(day));
+
+    return d.toLocaleDateString("es-CO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
 
   return d.toLocaleDateString("es-CO", {
     day: "numeric",
@@ -696,159 +839,7 @@ function initMultiSelect(root, cfg = {}) {
 /*************************************************
  * 3) Inicio (login + Bitrix init)
  *************************************************/
-document.addEventListener("DOMContentLoaded", () => {
-  if (DISABLE_LOGIN) {
-    (async () => {
-      try {
-        await new Promise((resolve) => BX24.init(resolve));
 
-        const currentUser = await new Promise((resolve, reject) => {
-          BX24.callMethod("user.current", {}, (res) => {
-            if (res.error && res.error()) {
-              reject(res.error());
-              return;
-            }
-            resolve(res.data());
-          });
-        });
-
-        if (!currentUser || !currentUser.ID) {
-          setLoginError("No fue posible obtener el usuario actual de Bitrix24.");
-          hideGlobalLoader();
-          return;
-        }
-
-        const currentEmail = String(currentUser.EMAIL || "").trim().toLowerCase();
-        const currentName = [currentUser.NAME, currentUser.LAST_NAME]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-
-        STATE.isAdmin = !!BX24.isAdmin();
-        STATE.asesorActual = currentEmail || currentName || `Usuario ${currentUser.ID}`;
-        STATE.asesorId = String(currentUser.ID || "");
-
-        showGlobalLoader("Cargando informacion...");
-        hideById("#view-login");
-        showById("#view-home");
-
-        showGlobalLoader("Cargando municipios...");
-        await loadMunicipioEnum();
-
-        showGlobalLoader("Cargando campanas...");
-        await loadCampanaEnum();
-
-        showGlobalLoader("Cargando asesores...");
-        await loadUsersMap();
-
-        showGlobalLoader("Cargando contactos...");
-        await loadContactosFromBitrix();
-
-        console.log("Login Bitrix automático", {
-          asesorId: STATE.asesorId,
-          email: currentEmail,
-          isAdmin: STATE.isAdmin,
-          currentUser,
-        });
-
-        showGlobalLoader("Preparando vista...");
-        initHome();
-      } catch (e) {
-        console.error("Error en login automatico Bitrix:", e);
-        alert("Error cargando la app con el usuario actual de Bitrix24. Revisa la consola.");
-        initHome();
-      } finally {
-        hideGlobalLoader();
-      }
-    })();
-    return;
-  }
-  hideById("#view-home");
-  showById("#view-login");
-
-  const btnLogin = qs("#btn-login");
-  const asesorInput = qs("#in-asesor");
-
-  if (!btnLogin) {
-    console.error("No se encontro el boton #btn-login");
-    return;
-  }
-
-  if (asesorInput)
-    asesorInput.addEventListener("input", () => clearLoginError());
-
-  btnLogin.addEventListener("click", async () => {
-    clearLoginError();
-
-    if (!window.BX24) {
-      alert("No se encontro BX24. Esta app debe ejecutarse dentro de Bitrix24.");
-      return;
-    }
-
-    showGlobalLoader("Accediendo con tu usuario de Bitrix24...");
-
-    try {
-      await new Promise((resolve) => BX24.init(resolve));
-
-      const currentUser = await new Promise((resolve, reject) => {
-        BX24.callMethod("user.current", {}, (res) => {
-          if (res.error && res.error()) {
-            reject(res.error());
-            return;
-          }
-          resolve(res.data());
-        });
-      });
-
-      if (!currentUser || !currentUser.ID) {
-        setLoginError("No fue posible obtener el usuario actual de Bitrix24.");
-        hideGlobalLoader();
-        return;
-      }
-
-      const currentEmail = String(currentUser.EMAIL || "").trim().toLowerCase();
-      const currentName = [currentUser.NAME, currentUser.LAST_NAME]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-
-      STATE.isAdmin = !!BX24.isAdmin();
-      STATE.asesorActual = currentEmail || currentName || `Usuario ${currentUser.ID}`;
-      STATE.asesorId = String(currentUser.ID || "");
-
-      hideById("#view-login");
-      showById("#view-home");
-
-      showGlobalLoader("Cargando municipios...");
-      await loadMunicipioEnum();
-
-      showGlobalLoader("Cargando campanas...");
-      await loadCampanaEnum();
-
-      showGlobalLoader("Cargando asesores...");
-      await loadUsersMap();
-
-      showGlobalLoader("Cargando contactos...");
-      await loadContactosFromBitrix();
-
-      console.log("Login Bitrix manual->automático", {
-        asesorId: STATE.asesorId,
-        email: currentEmail,
-        isAdmin: STATE.isAdmin,
-        currentUser,
-      });
-
-      showGlobalLoader("Preparando vista...");
-      initHome();
-    } catch (e) {
-      console.error("Error cargando app desde usuario actual Bitrix:", e);
-      alert("Error cargando la app con el usuario actual de Bitrix24. Revisa la consola.");
-      initHome();
-    } finally {
-      hideGlobalLoader();
-    }
-  });
-});
 
 qs("#md-close")?.addEventListener("click", closeCampanaModal);
 qs("#md-cancelar")?.addEventListener("click", closeCampanaModal);
@@ -884,6 +875,7 @@ function initHome() {
         onChange: (set) => {
           STATE.filtros.campanas =
             set instanceof Set ? set : new Set(set || []);
+          updateFilterSummary();
         },
       });
     }
@@ -912,23 +904,11 @@ function initHome() {
         onChange: (set) => {
           STATE.filtros.asesores =
             set instanceof Set ? set : new Set(set || []);
+          updateFilterSummary();
         },
       });
     }
   }
-
-  const fxInicio = qs("#fx-inicio");
-  const fxFin = qs("#fx-fin");
-  if (fxInicio)
-    fxInicio.addEventListener(
-      "change",
-      (e) => (STATE.filtros.inicio = e.target.value),
-    );
-  if (fxFin)
-    fxFin.addEventListener(
-      "change",
-      (e) => (STATE.filtros.fin = e.target.value),
-    );
 
   const btnFiltros = qs("#btn-filtros");
   const btnCloseDrawer = qs("#btn-close-drawer");
@@ -941,11 +921,13 @@ function initHome() {
     btnCancelarFiltros.addEventListener("click", closeDrawer);
   if (btnAplicarFiltros) {
     btnAplicarFiltros.addEventListener("click", () => {
+      updateFilterSummary();
       closeDrawer();
       renderTabla();
     });
   }
 
+  updateFilterSummary();
   renderTabla();
 }
 
@@ -962,6 +944,20 @@ function closeDrawer() {
   if (!d) return;
   d.classList.replace("translate-x-0", "translate-x-full");
   setTimeout(() => d.classList.add("hidden"), 250);
+}
+
+function updateFilterSummary() {
+  const el = qs("#filter-summary-text");
+  if (!el) return;
+
+  const parts = [];
+  const campCount = STATE.filtros.campanas?.size || 0;
+  const asesorCount = STATE.filtros.asesores?.size || 0;
+
+  if (campCount) parts.push(`${campCount} campaña${campCount === 1 ? "" : "s"}`);
+  if (asesorCount) parts.push(`${asesorCount} asesor${asesorCount === 1 ? "" : "es"}`);
+
+  el.textContent = parts.length ? parts.join(" · ") : "Ninguno";
 }
 
 function applyFilters(rows) {
@@ -996,40 +992,6 @@ function applyFilters(rows) {
 
   return rows;
 }
-
-function renderCampanasCell(campanas = []) {
-  if (!campanas.length) return "-";
-
-  const max = 3;
-  const visibles = campanas.slice(0, max);
-  const restantes = campanas.length - max;
-  const id = "camp_" + Math.random().toString(36).slice(2, 9);
-
-  if (restantes <= 0) {
-    return visibles.join(", ");
-  }
-
-  const campanasJson = JSON.stringify(campanas).replace(/"/g, "&quot;");
-
-  return `
-    <span id="${id}">
-      ${visibles.join(", ")}
-      <button
-        type="button"
-        class="text-[#1d73ea] font-semibold ml-1 hover:underline"
-        onclick='expandCampanas("${id}", ${campanasJson})'
-      >
-        +${restantes} más
-      </button>
-    </span>
-  `;
-}
-
-function expandCampanas(id, campanas) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = campanas.join(", ");
-}
 function escapeHtml(str = "") {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -1038,6 +1000,7 @@ function escapeHtml(str = "") {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
 
 function renderCampanasCell(campanas = []) {
   if (!campanas.length) return "-";
@@ -1093,6 +1056,8 @@ function renderCampanasCell(campanas = []) {
     </div>
   `;
 }
+
+
 
 function expandCampanas(id, campanas) {
   const el = document.getElementById(id);
@@ -1160,7 +1125,7 @@ function renderTabla() {
  *************************************************/
 let CURRENT_CTX = { row: null };
 
-function openDetalle(id) {
+async function openDetalle(id) {
   const row = STATE.rows.find((x) => String(x.id) === String(id));
   if (!row) return;
 
@@ -1169,18 +1134,34 @@ function openDetalle(id) {
   hideById("#view-home");
   showById("#view-detalle");
 
+  if (!Object.keys(MUNICIPIO_ENUM).length) {
+    await loadMunicipioEnum();
+  }
+
   qs("#dtl-nombre").textContent = row.nombre || "Contacto";
   qs("#dtl-person").value = row.nombre || "";
   qs("#dtl-email").value = row.email || "";
   qs("#dtl-phone").value = row.phone || "";
 
   fillMunicipioSelect(row.municipioId || "");
-  const btnToggle = document.getElementById("btn-toggle-campanas");
 
+  fetchContactById(row.contactId)
+    .then((contactFull) => {
+      const emails = Array.isArray(contactFull?.EMAIL) ? contactFull.EMAIL : [];
+      const phones = Array.isArray(contactFull?.PHONE) ? contactFull.PHONE : [];
+
+      row.email = emails[0]?.VALUE || "";
+      row.phone = phones[0]?.VALUE || "";
+
+      qs("#dtl-email").value = row.email;
+      qs("#dtl-phone").value = row.phone;
+    })
+    .catch((e) => console.warn("No se pudo completar email/teléfono:", e));
+
+  const btnToggle = document.getElementById("btn-toggle-campanas");
   if (btnToggle) {
     btnToggle.onclick = () => {
       SHOW_ALL_CAMPAIGNS = !SHOW_ALL_CAMPAIGNS;
-
       btnToggle.textContent = SHOW_ALL_CAMPAIGNS
         ? "Ocultar campañas completadas"
         : "Ver todas las campañas";
@@ -1188,11 +1169,10 @@ function openDetalle(id) {
       renderCampaignCardsByContact(row.contactId);
     };
   }
+
   const btnActualizar = document.getElementById("btn-actualizar-contacto");
   if (btnActualizar) {
-    btnActualizar.onclick = () => {
-      saveContactFromDetalle();
-    };
+    btnActualizar.onclick = () => saveContactFromDetalle();
   }
 
   const btnBack = qs("#btn-back");
@@ -1234,6 +1214,7 @@ async function renderCampaignCardsByContact(contactId) {
   wrap.innerHTML = `<div class="text-sm text-slate-500">Cargando campañas activas...</div>`;
 
   let contact = null;
+
   try {
     contact = await fetchContactById(contactId);
     await loadCampanaEnum();
@@ -1258,14 +1239,12 @@ async function renderCampaignCardsByContact(contactId) {
   }
 
   const campanasTodas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
-
   const statusMap = loadCardStatusMap();
 
   const campanas = campanasTodas.filter((campanaTxt) => {
     const key = getCardStatusKey(contactId, campanaTxt);
     const estado = statusMap[key];
 
-    // si NO estamos mostrando todas → ocultar completadas
     if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") {
       return false;
     }
@@ -1278,76 +1257,76 @@ async function renderCampaignCardsByContact(contactId) {
     return;
   }
 
+  wrap.innerHTML = `<div class="text-sm text-slate-500">Consultando datos de campañas...</div>`;
+
+  const productos = await Promise.all(
+    campanas.map(async (campanaTxt) => {
+      try {
+        const producto = await fetchProductoCampanaByNombre(campanaTxt);
+        return { campanaTxt, producto };
+      } catch (e) {
+        console.error("Error consultando producto de campaña:", campanaTxt, e);
+        return { campanaTxt, producto: null };
+      }
+    })
+  );
+
   wrap.innerHTML = "";
 
-  for (const campanaTxt of campanas) {
-    let producto = null;
-
-    try {
-      producto = await fetchProductoCampanaByNombre(campanaTxt);
-    } catch (e) {
-      console.error("Error consultando producto de campaña:", campanaTxt, e);
-    }
-
+  productos.forEach(({ campanaTxt, producto }) => {
     const fechaInicioRaw = getBitrixPropValue(producto?.PROPERTY_360);
     const fechaFinRaw = getBitrixPropValue(producto?.PROPERTY_356);
     const estadoRaw = getBitrixPropValue(producto?.PROPERTY_358);
 
-    const fechaInicio = formatFechaBitrix(fechaInicioRaw);
-    const fechaFin = formatFechaBitrix(fechaFinRaw);
     const estadoCampana = estadoRaw || "Sin estado";
-    const statusMap = loadCardStatusMap();
     const cardKey = getCardStatusKey(contactId, campanaTxt);
     const estadoSeguimiento = statusMap[cardKey] || "Por completar";
 
     const card = document.createElement("div");
-    card.className =
-      "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
+    card.className = "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
 
     card.innerHTML = `
-      <div class="flex items-start justify-between">
-        <div class="text-xl font-semibold text-slate-900">
-          ${campanaTxt}
-        </div>
-
-        <div class="text-sm font-semibold text-green-600">
-          ${estadoCampana}
-        </div>
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <div class="text-xl font-semibold text-slate-900">
+        ${escapeHtml(campanaTxt)}
       </div>
+    </div>
 
-      <div class="mt-6 flex items-center justify-between">
-      <div class="text-sm font-medium ${
-        estadoSeguimiento === "Completado"
-          ? "text-green-600"
-          : estadoSeguimiento === "Seguimiento"
-            ? "text-blue-600"
-            : "text-orange-500"
-      }">
-  ${estadoSeguimiento}
-</div>
+    <div class="text-sm font-semibold text-green-600">
+      ${escapeHtml(estadoCampana)}
+    </div>
+  </div>
 
-        <button 
-          class="btn-detalle px-4 py-2 rounded-full border border-blue-500 text-blue-500 text-sm font-medium hover:bg-blue-50 transition"
-        >
-          Detalle
-        </button>
-      </div>
-    `;
+  <div class="mt-6 flex items-center justify-between">
+    <div class="text-sm font-medium ${
+      estadoSeguimiento === "Completado"
+        ? "text-green-600"
+        : estadoSeguimiento === "Seguimiento"
+          ? "text-blue-600"
+          : "text-orange-500"
+    }">
+      ${escapeHtml(estadoSeguimiento)}
+    </div>
 
-    const btn = card.querySelector(".btn-detalle");
-    if (btn) {
-      btn.onclick = () => {
-        openCampanaModal({
-          nombre: campanaTxt,
-          producto,
-        });
-      };
-    }
+    <button 
+      class="btn-detalle px-4 py-2 rounded-full border border-blue-500 text-blue-500 text-sm font-medium hover:bg-blue-50 transition"
+    >
+      Detalle
+    </button>
+  </div>
+`;
+
+    card.querySelector(".btn-detalle")?.addEventListener("click", () => {
+      openCampanaModal({
+        nombre: campanaTxt,
+        producto,
+      });
+    });
 
     wrap.appendChild(card);
-  }
+  });
 }
-
 // ===== MODAL CAMPAÑA =====
 
 let CURRENT_MODAL_CTX = {
