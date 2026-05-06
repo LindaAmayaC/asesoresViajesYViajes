@@ -185,12 +185,36 @@
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <input id="dtl-person" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Nombre" />
-        <input id="dtl-email" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Email (si existe)" />
-        <input id="dtl-phone" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Telefono (si existe)" />
-        <select id="dtl-place" class="rounded-xl border border-gray-200 px-3 py-2 bg-white">
+        <input id="dtl-person" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Nombre" />
+        <input id="dtl-email" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Email" />
+        <input id="dtl-phone" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Telefono" />
+        <select id="dtl-place" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none">
           <option value="">Selecciona ciudad</option>
         </select>
+
+        <div class="space-y-1">
+          <label class="block text-xs font-bold text-slate-700">Viajes futuros</label>
+          <select id="dtl-viajes-futuros" multiple size="5" class="hidden">
+            <option value="">Viajes futuros</option>
+          </select>
+          <input id="dtl-viajes-futuros-otro" class="hidden w-full h-[54px] rounded-[16px] border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1d73ea]/20" placeholder="Escribe otra opción de viajes futuros" />
+        </div>
+
+        <div class="space-y-1">
+          <label class="block text-xs font-bold text-slate-700">Tipo contacto</label>
+          <select id="dtl-tipo-contacto" multiple size="5" class="hidden">
+            <option value="">Tipo contacto</option>
+          </select>
+          <input id="dtl-tipo-contacto-otro" class="hidden w-full h-[54px] rounded-[16px] border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1d73ea]/20" placeholder="Escribe otro tipo de contacto" />
+        </div>
+
+        <div class="space-y-1 md:col-span-2">
+          <label class="block text-xs font-bold text-slate-700">Viajes realizados</label>
+          <select id="dtl-viajes-realizados" multiple size="6" class="hidden">
+            <option value="">Viajes realizados</option>
+          </select>
+          <input id="dtl-viajes-realizados-otro" class="hidden w-full h-[54px] rounded-[16px] border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1d73ea]/20" placeholder="Escribe otra opción de viajes realizados" />
+        </div>
       </div>
       <div class="flex justify-end mb-4">
         <button id="btn-actualizar-contacto"

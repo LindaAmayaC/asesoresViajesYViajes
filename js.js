@@ -301,6 +301,30 @@ let MUNICIPIO_ENUM_BY_TEXT = {}; // texto normalizado -> ID
 let CAMPANA_ENUM = {}; // ID -> Texto (UF_CRM_1768059328177)
 let CAMPANA_ENUM_BY_TEXT = {}; // texto normalizado -> ID
 
+const CONTACT_DETAIL_OTHER_VALUE = "__OTHER__";
+const CONTACT_DETAIL_FIELDS = {
+  viajesFuturos: {
+    code: "UF_CRM_1723205267",
+    selector: "#dtl-viajes-futuros",
+    otherSelector: "#dtl-viajes-futuros-otro",
+    placeholder: "Viajes futuros",
+  },
+  tipoContacto: {
+    code: "UF_CRM_1759870385",
+    selector: "#dtl-tipo-contacto",
+    otherSelector: "#dtl-tipo-contacto-otro",
+    placeholder: "Tipo contacto",
+  },
+  viajesRealizados: {
+    code: "UF_CRM_1671644220",
+    selector: "#dtl-viajes-realizados",
+    otherSelector: "#dtl-viajes-realizados-otro",
+    placeholder: "Viajes realizados",
+  },
+};
+let CONTACT_DETAIL_ENUMS = {}; // FIELD_CODE -> { ID: Texto }
+let CONTACT_DETAIL_META = {}; // FIELD_CODE -> metadata de Bitrix, ej. { isMultiple: true/false }
+
 function loadMunicipioEnum() {
   return new Promise((resolve, reject) => {
     BX24.callMethod("crm.contact.fields", {}, function (result) {
@@ -327,6 +351,228 @@ function loadMunicipioEnum() {
 
       resolve();
     });
+  });
+}
+
+function loadContactDetailEnums() {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod("crm.contact.fields", {}, function (result) {
+      if (result.error()) {
+        reject(result.error());
+        return;
+      }
+
+      const fields = result.data() || {};
+      CONTACT_DETAIL_ENUMS = {};
+
+      Object.values(CONTACT_DETAIL_FIELDS).forEach(({ code }) => {
+        const f = fields[code];
+        const items = Array.isArray(f?.items) ? f.items : [];
+
+        CONTACT_DETAIL_ENUMS[code] = {};
+        CONTACT_DETAIL_META[code] = {
+          // Bitrix puede devolver isMultiple como true, "Y" o 1 según el método/portal.
+          isMultiple: f?.isMultiple === true || f?.isMultiple === "Y" || f?.MULTIPLE === "Y" || f?.multiple === true,
+        };
+
+        items.forEach((it) => {
+          const id = String(it.ID);
+          const text = String(it.VALUE || "").trim();
+          if (id && text) CONTACT_DETAIL_ENUMS[code][id] = text;
+        });
+      });
+
+      resolve();
+    });
+  });
+}
+
+function normalizeMultiUfValues(value) {
+  if (Array.isArray(value)) return value.map((v) => String(v)).filter(Boolean);
+  if (value === null || value === undefined || value === "") return [];
+  return [String(value)];
+}
+
+function getSelectedOptionsValues(selector) {
+  const sel = qs(selector);
+  if (!sel) return [];
+
+  // Lee directamente del <select> oculto. Es más seguro que selectedOptions
+  // cuando usamos una UI custom con checkboxes.
+  const valuesFromSelect = [...sel.options]
+    .filter((o) => o.selected)
+    .map((o) => String(o.value))
+    .filter(Boolean);
+
+  if (valuesFromSelect.length) return valuesFromSelect;
+
+  // Fallback: si por alguna razón el navegador no sincronizó el select,
+  // lee los checks de la UI generada.
+  const wrapper = document.getElementById(`${sel.id}-ms-ui`);
+  if (!wrapper) return [];
+
+  return [...wrapper.querySelectorAll("[data-ms-value]:checked")]
+    .map((cb) => String(cb.dataset.msValue || ""))
+    .filter(Boolean);
+}
+
+function toggleContactDetailOtherInput(selector, otherSelector) {
+  const input = qs(otherSelector);
+  if (!input) return;
+
+  const selectedValues = getSelectedOptionsValues(selector);
+  const isOther = selectedValues.includes(CONTACT_DETAIL_OTHER_VALUE);
+  input.classList.toggle("hidden", !isOther);
+
+  if (isOther) {
+    input.focus();
+  } else {
+    input.value = "";
+  }
+}
+
+function fillContactDetailSelect(selector, enumMap = {}, selectedIds = [], placeholder = "Selecciona opción", otherSelector = "") {
+  const sel = qs(selector);
+  if (!sel) return;
+
+  const selectedSet = new Set(normalizeMultiUfValues(selectedIds));
+  sel.innerHTML = "";
+  sel.multiple = true;
+
+  Object.entries(enumMap || {})
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+    .forEach(([id, text]) => {
+      const opt = document.createElement("option");
+      opt.value = String(id);
+      opt.textContent = text;
+      if (selectedSet.has(String(id))) opt.selected = true;
+      sel.appendChild(opt);
+    });
+
+  const otherOpt = document.createElement("option");
+  otherOpt.value = CONTACT_DETAIL_OTHER_VALUE;
+  otherOpt.textContent = "➕ Otra opción...";
+  sel.appendChild(otherOpt);
+
+  sel.classList.add("hidden");
+
+  if (otherSelector) {
+    sel.onchange = () => toggleContactDetailOtherInput(selector, otherSelector);
+    toggleContactDetailOtherInput(selector, otherSelector);
+  }
+
+  renderContactDetailMultiSelect(selector, placeholder, otherSelector);
+}
+
+function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opciones", otherSelector = "") {
+  const sel = qs(selector);
+  if (!sel) return;
+
+  const wrapperId = `${sel.id || selector.replace(/[^a-z0-9]/gi, "_")}-ms-ui`;
+  let wrapper = document.getElementById(wrapperId);
+
+  if (!wrapper) {
+    wrapper = document.createElement("div");
+    wrapper.id = wrapperId;
+    wrapper.className = "relative contact-detail-ms";
+    sel.insertAdjacentElement("afterend", wrapper);
+  }
+
+  const selectedOptions = [...sel.options].filter((opt) => opt.selected && opt.value !== CONTACT_DETAIL_OTHER_VALUE);
+  const otherSelected = [...sel.options].some((opt) => opt.selected && opt.value === CONTACT_DETAIL_OTHER_VALUE);
+  const label = selectedOptions.length
+    ? `${selectedOptions.length} seleccionado${selectedOptions.length === 1 ? "" : "s"}`
+    : placeholder;
+
+  const optionsHtml = [...sel.options]
+    .map((opt) => {
+      const isOther = opt.value === CONTACT_DETAIL_OTHER_VALUE;
+      const checked = opt.selected ? "checked" : "";
+      const labelClass = isOther ? "font-semibold text-[#1d73ea]" : "text-slate-700";
+
+      return `
+        <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition">
+          <input
+            type="checkbox"
+            data-ms-value="${escapeHtml(opt.value)}"
+            ${checked}
+            class="h-4 w-4 rounded border-slate-300 text-[#1d73ea] focus:ring-[#1d73ea]/30"
+          />
+          <span class="text-sm ${labelClass}">${escapeHtml(opt.textContent || "")}</span>
+        </label>
+      `;
+    })
+    .join("");
+
+  wrapper.innerHTML = `
+    <button type="button"
+      class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none"
+      data-cdms-trigger>
+      <span class="truncate ${selectedOptions.length ? "text-slate-900 font-normal" : "text-slate-400 font-normal"}">${escapeHtml(label)}</span>
+      <span class="inline-flex shrink-0 items-center justify-center text-slate-900 transition" data-cdms-chevron>
+        <i class="fa-solid fa-chevron-down text-base"></i>
+      </span>
+    </button>
+
+    <div data-cdms-panel class="hidden absolute left-0 right-0 top-full z-40 mt-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-2xl max-h-72 overflow-auto">
+      ${optionsHtml || `<div class="px-3 py-2 text-sm text-slate-400">Sin opciones disponibles</div>`}
+    </div>
+  `;
+
+  const trigger = wrapper.querySelector("[data-cdms-trigger]");
+  const panel = wrapper.querySelector("[data-cdms-panel]");
+  const chevron = wrapper.querySelector("[data-cdms-chevron]");
+
+  const close = () => {
+    panel?.classList.add("hidden");
+    chevron?.classList.remove("rotate-180");
+  };
+
+  trigger?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    document.querySelectorAll("[data-cdms-panel]").forEach((p) => {
+      if (p !== panel) p.classList.add("hidden");
+    });
+
+    panel?.classList.toggle("hidden");
+    chevron?.classList.toggle("rotate-180", !panel?.classList.contains("hidden"));
+  });
+
+  panel?.addEventListener("click", (e) => e.stopPropagation());
+
+  wrapper.querySelectorAll("[data-ms-value]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const value = String(cb.dataset.msValue || "");
+      const opt = [...sel.options].find((item) => String(item.value) === value);
+      if (opt) opt.selected = cb.checked;
+
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      renderContactDetailMultiSelect(selector, placeholder, otherSelector);
+    });
+  });
+
+  if (!window.__contactDetailMultiSelectCloseBound) {
+    document.addEventListener("click", () => {
+      document.querySelectorAll("[data-cdms-panel]").forEach((p) => p.classList.add("hidden"));
+      document.querySelectorAll("[data-cdms-chevron]").forEach((c) => c.classList.remove("rotate-180"));
+    });
+    window.__contactDetailMultiSelectCloseBound = true;
+  }
+
+  if (otherSelector) toggleContactDetailOtherInput(selector, otherSelector);
+}
+
+function fillAllContactDetailSelects(contact = {}) {
+  Object.values(CONTACT_DETAIL_FIELDS).forEach(({ code, selector, placeholder, otherSelector }) => {
+    fillContactDetailSelect(
+      selector,
+      CONTACT_DETAIL_ENUMS[code] || {},
+      contact?.[code] || "",
+      placeholder,
+      otherSelector,
+    );
   });
 }
 
@@ -1137,6 +1383,9 @@ async function openDetalle(id) {
   if (!Object.keys(MUNICIPIO_ENUM).length) {
     await loadMunicipioEnum();
   }
+  if (!Object.keys(CONTACT_DETAIL_ENUMS).length) {
+    await loadContactDetailEnums();
+  }
 
   qs("#dtl-nombre").textContent = row.nombre || "Contacto";
   qs("#dtl-person").value = row.nombre || "";
@@ -1155,6 +1404,7 @@ async function openDetalle(id) {
 
       qs("#dtl-email").value = row.email;
       qs("#dtl-phone").value = row.phone;
+      fillAllContactDetailSelects(contactFull);
     })
     .catch((e) => console.warn("No se pudo completar email/teléfono:", e));
 
@@ -1467,6 +1717,67 @@ function updateContactUserfieldList(fieldId, currentList, newValue) {
   });
 }
 
+async function ensureContactEnumOption(fieldCode, valueText) {
+  const cleanValue = String(valueText || "").trim();
+  if (!cleanValue) return "";
+
+  const userField = await getContactUserfieldByName(fieldCode);
+  if (!userField?.ID) {
+    throw new Error(`No se encontró el campo ${fieldCode}.`);
+  }
+
+  let option = findEnumOptionByValue(userField.LIST || [], cleanValue);
+
+  if (!option) {
+    await updateContactUserfieldList(userField.ID, userField.LIST || [], cleanValue);
+    const refreshedField = await getContactUserfieldByName(fieldCode);
+    option = findEnumOptionByValue(refreshedField?.LIST || [], cleanValue);
+  }
+
+  if (!option?.ID) {
+    throw new Error(`No se pudo crear la opción "${cleanValue}" en ${fieldCode}.`);
+  }
+
+  CONTACT_DETAIL_ENUMS[fieldCode] = {
+    ...(CONTACT_DETAIL_ENUMS[fieldCode] || {}),
+    [String(option.ID)]: cleanValue,
+  };
+
+  return String(option.ID);
+}
+
+async function getContactDetailFieldValues(fieldKey) {
+  const cfg = CONTACT_DETAIL_FIELDS[fieldKey];
+  if (!cfg) return [];
+
+  const selectedValues = getSelectedOptionsValues(cfg.selector);
+  const values = selectedValues.filter((v) => v !== CONTACT_DETAIL_OTHER_VALUE);
+
+  if (selectedValues.includes(CONTACT_DETAIL_OTHER_VALUE)) {
+    const manualValue = qs(cfg.otherSelector)?.value.trim() || "";
+    if (!manualValue) {
+      throw new Error(`Debes escribir la opción manual para ${cfg.placeholder}.`);
+    }
+
+    const newId = await ensureContactEnumOption(cfg.code, manualValue);
+    values.push(String(newId));
+
+    // Deja la nueva opción marcada visualmente después de crearla.
+    await loadContactDetailEnums();
+    const currentContact = await fetchContactById(CURRENT_CTX?.row?.contactId);
+    const nextSelected = [...new Set([...normalizeMultiUfValues(currentContact?.[cfg.code]), ...values])];
+    fillContactDetailSelect(
+      cfg.selector,
+      CONTACT_DETAIL_ENUMS[cfg.code] || {},
+      nextSelected,
+      cfg.placeholder,
+      cfg.otherSelector,
+    );
+  }
+
+  return [...new Set(values.map(String).filter(Boolean))];
+}
+
 function getDealUserfieldByName(fieldName) {
   return new Promise((resolve, reject) => {
     BX24.callMethod(
@@ -1771,6 +2082,20 @@ function setActualizarButtonState(state = "idle") {
   btn.textContent = btn.dataset.originalText || "Actualizar datos";
 }
 
+function formatContactDetailValueForBitrix(fieldCode, ids = []) {
+  const cleanIds = [...new Set((ids || []).map(String).filter(Boolean))];
+  const meta = CONTACT_DETAIL_META[fieldCode] || {};
+
+  // Viajes futuros y realizados suelen ser múltiples.
+  // Tipo contacto/tipo cliente muchas veces en Bitrix es lista simple.
+  // Si el campo NO es múltiple y enviamos array, Bitrix puede dejarlo como "no seleccionado".
+  if (!meta.isMultiple) {
+    return cleanIds.length ? cleanIds[0] : null;
+  }
+
+  return cleanIds.length ? cleanIds : null;
+}
+
 async function saveContactFromDetalle() {
   const row = CURRENT_CTX.row;
   if (!row || !row.contactId) {
@@ -1783,6 +2108,9 @@ async function saveContactFromDetalle() {
   const phone = qs("#dtl-phone")?.value.trim() || "";
   const municipioId = qs("#dtl-place")?.value || "";
   const placeTxt = MUNICIPIO_ENUM[municipioId] || "";
+  let viajesFuturosIds = [];
+  let tipoContactoIds = [];
+  let viajesRealizadosIds = [];
 
   let NAME = fullName;
   let LAST_NAME = "";
@@ -1796,6 +2124,10 @@ async function saveContactFromDetalle() {
   showDetalleLoader();
 
   try {
+    viajesFuturosIds = await getContactDetailFieldValues("viajesFuturos");
+    tipoContactoIds = await getContactDetailFieldValues("tipoContacto");
+    viajesRealizadosIds = await getContactDetailFieldValues("viajesRealizados");
+
     const contact = await fetchContactById(row.contactId);
 
     const emails = Array.isArray(contact?.EMAIL) ? contact.EMAIL : [];
@@ -1861,10 +2193,21 @@ async function saveContactFromDetalle() {
       NAME,
       LAST_NAME,
       UF_CRM_1722975246: municipioId || null,
+      UF_CRM_1723205267: formatContactDetailValueForBitrix("UF_CRM_1723205267", viajesFuturosIds),
+      UF_CRM_1759870385: formatContactDetailValueForBitrix("UF_CRM_1759870385", tipoContactoIds),
+      UF_CRM_1671644220: formatContactDetailValueForBitrix("UF_CRM_1671644220", viajesRealizadosIds),
     };
 
     if (email) fields.EMAIL = emailPayload;
     if (phone) fields.PHONE = phonePayload;
+
+    console.log("Campos detalle a actualizar:", {
+      viajesFuturosIds,
+      tipoContactoIds,
+      viajesRealizadosIds,
+      fields,
+      CONTACT_DETAIL_META,
+    });
 
     BX24.callMethod(
       "crm.contact.update",
@@ -1883,6 +2226,9 @@ async function saveContactFromDetalle() {
         row.phone = phone || row.phone;
         row.municipioId = municipioId;
         row.place = placeTxt || row.place;
+        row.viajesFuturosIds = viajesFuturosIds;
+        row.tipoContactoIds = tipoContactoIds;
+        row.viajesRealizadosIds = viajesRealizadosIds;
 
         qs("#dtl-nombre").textContent = row.nombre || "Contacto";
         renderTabla();
@@ -1895,8 +2241,9 @@ async function saveContactFromDetalle() {
       },
     );
   } catch (e) {
+    console.error("No se pudo preparar la actualización del contacto:", e);
     setActualizarButtonState("idle");
     hideDetalleLoader();
-    showToast("No se pudo preparar la actualización del contacto.", "error");
+    showToast(e?.message || "No se pudo preparar la actualización del contacto.", "error");
   }
 }
