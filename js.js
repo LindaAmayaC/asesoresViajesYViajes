@@ -67,7 +67,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       USER_MAP[STATE.asesorId] = {
         nombre:
-          [currentUser.NAME, currentUser.LAST_NAME].filter(Boolean).join(" ").trim() ||
+          [currentUser.NAME, currentUser.LAST_NAME]
+            .filter(Boolean)
+            .join(" ")
+            .trim() ||
           currentUser.EMAIL ||
           `Asesor ${STATE.asesorId}`,
         email: currentUser.EMAIL || "",
@@ -224,7 +227,6 @@ const qsa = (s, ctx = document) => [...ctx.querySelectorAll(s)];
 const showById = (id) => qs(id)?.classList.remove("hidden");
 const hideById = (id) => qs(id)?.classList.add("hidden");
 
-
 const chipEstado = (texto) => {
   const base =
     "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold";
@@ -372,7 +374,11 @@ function loadContactDetailEnums() {
         CONTACT_DETAIL_ENUMS[code] = {};
         CONTACT_DETAIL_META[code] = {
           // Bitrix puede devolver isMultiple como true, "Y" o 1 según el método/portal.
-          isMultiple: f?.isMultiple === true || f?.isMultiple === "Y" || f?.MULTIPLE === "Y" || f?.multiple === true,
+          isMultiple:
+            f?.isMultiple === true ||
+            f?.isMultiple === "Y" ||
+            f?.MULTIPLE === "Y" ||
+            f?.multiple === true,
         };
 
         items.forEach((it) => {
@@ -431,7 +437,13 @@ function toggleContactDetailOtherInput(selector, otherSelector) {
   }
 }
 
-function fillContactDetailSelect(selector, enumMap = {}, selectedIds = [], placeholder = "Selecciona opción", otherSelector = "") {
+function fillContactDetailSelect(
+  selector,
+  enumMap = {},
+  selectedIds = [],
+  placeholder = "Selecciona opción",
+  otherSelector = "",
+) {
   const sel = qs(selector);
   if (!sel) return;
 
@@ -464,7 +476,11 @@ function fillContactDetailSelect(selector, enumMap = {}, selectedIds = [], place
   renderContactDetailMultiSelect(selector, placeholder, otherSelector);
 }
 
-function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opciones", otherSelector = "") {
+function renderContactDetailMultiSelect(
+  selector,
+  placeholder = "Selecciona opciones",
+  otherSelector = "",
+) {
   const sel = qs(selector);
   if (!sel) return;
 
@@ -478,8 +494,12 @@ function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opci
     sel.insertAdjacentElement("afterend", wrapper);
   }
 
-  const selectedOptions = [...sel.options].filter((opt) => opt.selected && opt.value !== CONTACT_DETAIL_OTHER_VALUE);
-  const otherSelected = [...sel.options].some((opt) => opt.selected && opt.value === CONTACT_DETAIL_OTHER_VALUE);
+  const selectedOptions = [...sel.options].filter(
+    (opt) => opt.selected && opt.value !== CONTACT_DETAIL_OTHER_VALUE,
+  );
+  const otherSelected = [...sel.options].some(
+    (opt) => opt.selected && opt.value === CONTACT_DETAIL_OTHER_VALUE,
+  );
   const label = selectedOptions.length
     ? `${selectedOptions.length} seleccionado${selectedOptions.length === 1 ? "" : "s"}`
     : placeholder;
@@ -488,7 +508,9 @@ function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opci
     .map((opt) => {
       const isOther = opt.value === CONTACT_DETAIL_OTHER_VALUE;
       const checked = opt.selected ? "checked" : "";
-      const labelClass = isOther ? "font-semibold text-[#1d73ea]" : "text-slate-700";
+      const labelClass = isOther
+        ? "font-semibold text-[#1d73ea]"
+        : "text-slate-700";
 
       return `
         <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition">
@@ -537,7 +559,10 @@ function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opci
     });
 
     panel?.classList.toggle("hidden");
-    chevron?.classList.toggle("rotate-180", !panel?.classList.contains("hidden"));
+    chevron?.classList.toggle(
+      "rotate-180",
+      !panel?.classList.contains("hidden"),
+    );
   });
 
   panel?.addEventListener("click", (e) => e.stopPropagation());
@@ -555,8 +580,12 @@ function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opci
 
   if (!window.__contactDetailMultiSelectCloseBound) {
     document.addEventListener("click", () => {
-      document.querySelectorAll("[data-cdms-panel]").forEach((p) => p.classList.add("hidden"));
-      document.querySelectorAll("[data-cdms-chevron]").forEach((c) => c.classList.remove("rotate-180"));
+      document
+        .querySelectorAll("[data-cdms-panel]")
+        .forEach((p) => p.classList.add("hidden"));
+      document
+        .querySelectorAll("[data-cdms-chevron]")
+        .forEach((c) => c.classList.remove("rotate-180"));
     });
     window.__contactDetailMultiSelectCloseBound = true;
   }
@@ -565,15 +594,17 @@ function renderContactDetailMultiSelect(selector, placeholder = "Selecciona opci
 }
 
 function fillAllContactDetailSelects(contact = {}) {
-  Object.values(CONTACT_DETAIL_FIELDS).forEach(({ code, selector, placeholder, otherSelector }) => {
-    fillContactDetailSelect(
-      selector,
-      CONTACT_DETAIL_ENUMS[code] || {},
-      contact?.[code] || "",
-      placeholder,
-      otherSelector,
-    );
-  });
+  Object.values(CONTACT_DETAIL_FIELDS).forEach(
+    ({ code, selector, placeholder, otherSelector }) => {
+      fillContactDetailSelect(
+        selector,
+        CONTACT_DETAIL_ENUMS[code] || {},
+        contact?.[code] || "",
+        placeholder,
+        otherSelector,
+      );
+    },
+  );
 }
 
 function loadCampanaEnum() {
@@ -650,13 +681,13 @@ function mapContactFromBitrix(c) {
   const campanaIds = normalizeMultiValue(c.UF_CRM_1768059328177);
   let campanaTexts = campanaIdsToTexts(campanaIds);
 
-campanaTexts = campanaTexts.filter((c) => {
-  if (!c) return false;
+  campanaTexts = campanaTexts.filter((c) => {
+    if (!c) return false;
 
-  const val = c.toLowerCase().trim();
+    const val = c.toLowerCase().trim();
 
-  return val !== "-" && val !== "no seleccionado";
-});
+    return val !== "-" && val !== "no seleccionado";
+  });
 
   return {
     id,
@@ -733,10 +764,10 @@ async function loadContactosFromBitrix() {
       },
     },
   );
-STATE.rows = contacts
-  .map(mapContactFromBitrix)
-  .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
-  
+  STATE.rows = contacts
+    .map(mapContactFromBitrix)
+    .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
+
   rebuildDisponiblesFromRows();
   renderTabla();
 
@@ -806,7 +837,10 @@ function showGlobalLoader(text = "Cargando información...") {
   const loader = document.getElementById("global-loader");
   if (!loader) return;
 
-  setGlobalLoaderStep(text, "Por favor no cierres esta ventana mientras termina la carga.");
+  setGlobalLoaderStep(
+    text,
+    "Por favor no cierres esta ventana mientras termina la carga.",
+  );
 
   loader.classList.remove("hidden");
   loader.classList.add("flex");
@@ -827,7 +861,12 @@ function setGlobalLoaderStep(title = "Cargando módulo", detail = "") {
   if (detailEl) detailEl.textContent = detail;
 }
 
-function setGlobalLoaderProgress({ pages = 0, total = 0, elapsedMs = 0, done = false } = {}) {
+function setGlobalLoaderProgress({
+  pages = 0,
+  total = 0,
+  elapsedMs = 0,
+  done = false,
+} = {}) {
   const bar = document.getElementById("global-loader-bar");
   const txt = document.getElementById("global-loader-progress");
   const badge = document.getElementById("global-loader-badge");
@@ -880,9 +919,6 @@ function hideDetalleLoader() {
   loader.classList.add("hidden");
   loader.classList.remove("flex");
 }
-
-
-
 
 function getBitrixPropValue(prop) {
   if (!prop) return "";
@@ -1086,7 +1122,6 @@ function initMultiSelect(root, cfg = {}) {
  * 3) Inicio (login + Bitrix init)
  *************************************************/
 
-
 qs("#md-close")?.addEventListener("click", closeCampanaModal);
 qs("#md-cancelar")?.addEventListener("click", closeCampanaModal);
 /*************************************************
@@ -1200,8 +1235,10 @@ function updateFilterSummary() {
   const campCount = STATE.filtros.campanas?.size || 0;
   const asesorCount = STATE.filtros.asesores?.size || 0;
 
-  if (campCount) parts.push(`${campCount} campaña${campCount === 1 ? "" : "s"}`);
-  if (asesorCount) parts.push(`${asesorCount} asesor${asesorCount === 1 ? "" : "es"}`);
+  if (campCount)
+    parts.push(`${campCount} campaña${campCount === 1 ? "" : "s"}`);
+  if (asesorCount)
+    parts.push(`${asesorCount} asesor${asesorCount === 1 ? "" : "es"}`);
 
   el.textContent = parts.length ? parts.join(" · ") : "Ninguno";
 }
@@ -1246,7 +1283,6 @@ function escapeHtml(str = "") {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
 
 function renderCampanasCell(campanas = []) {
   if (!campanas.length) return "-";
@@ -1303,8 +1339,6 @@ function renderCampanasCell(campanas = []) {
   `;
 }
 
-
-
 function expandCampanas(id, campanas) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1344,9 +1378,9 @@ function renderTabla() {
     tr.className = "border-b last:border-b-0 hover:bg-gray-50";
 
     tr.innerHTML = `
-    <td class="px-5 py-3">${r.nombre}</td>
-    <td class="px-5 py-3 align-top overflow-hidden">${campanaTexto}</td>
-    <td class="px-5 py-3 relative z-10">
+    <td data-label="Nombre Cliente" class="px-5 py-3 text-safe">${escapeHtml(r.nombre)}</td>
+    <td data-label="Campaña" class="px-5 py-3 align-top overflow-hidden text-safe">${campanaTexto}</td>
+    <td data-label="Acciones" class="px-5 py-3 relative z-10">
       <div class="flex justify-end">
         <button class="btn-ver-mas flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-[#1d73ea] transition">
           Ver más
@@ -1371,11 +1405,146 @@ function renderTabla() {
  *************************************************/
 let CURRENT_CTX = { row: null };
 
+
+function bxCall(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      BX24.callMethod(method, params, (result) => {
+        if (result.error && result.error()) {
+          reject(result.error());
+          return;
+        }
+        resolve(result.data ? result.data() : null);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+
+
+/*************************************************
+ * Telefonía Bitrix: llamar sin bloquear cards
+ *************************************************/
+function cleanPhoneForBitrix(phone = "") {
+  return String(phone || "")
+    .trim()
+    .replace(/(?!^\+)\D/g, "");
+}
+
+function getCurrentDetailPhone() {
+  const inputPhone = qs("#dtl-phone")?.value || "";
+  const ctxPhone = CURRENT_CTX?.row?.phone || "";
+  return cleanPhoneForBitrix(inputPhone || ctxPhone);
+}
+
+function setCallButtonsState(disabled = false) {
+  ["btn-call-phone-inline"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !!disabled;
+  });
+}
+
+function showCallPanel({ name = "Cliente", phone = "", status = "Preparando llamada..." } = {}) {
+  const panel = document.getElementById("call-panel");
+  if (!panel) return;
+
+  panel.classList.remove("hidden");
+
+  const body = document.getElementById("call-panel-body");
+  if (body) body.classList.remove("hidden");
+
+  const nameEl = document.getElementById("call-panel-name");
+  const phoneEl = document.getElementById("call-panel-phone");
+  const statusEl = document.getElementById("call-panel-status");
+
+  if (nameEl) nameEl.textContent = name || "Cliente";
+  if (phoneEl) phoneEl.textContent = phone || "Sin teléfono";
+  if (statusEl) statusEl.textContent = status;
+}
+
+function updateCallPanelStatus(status = "") {
+  const statusEl = document.getElementById("call-panel-status");
+  if (statusEl) statusEl.textContent = status;
+}
+
+function initCallPanelControls() {
+  const closeBtn = document.getElementById("call-panel-close");
+  const minBtn = document.getElementById("call-panel-min");
+  const panel = document.getElementById("call-panel");
+  const body = document.getElementById("call-panel-body");
+
+  if (closeBtn && !closeBtn.dataset.bound) {
+    closeBtn.dataset.bound = "1";
+    closeBtn.addEventListener("click", () => panel?.classList.add("hidden"));
+  }
+
+  if (minBtn && !minBtn.dataset.bound) {
+    minBtn.dataset.bound = "1";
+    minBtn.addEventListener("click", () => body?.classList.toggle("hidden"));
+  }
+}
+
+async function callClienteBitrix() {
+  const row = CURRENT_CTX?.row;
+  const phone = getCurrentDetailPhone();
+  const name = row?.nombre || qs("#dtl-nombre")?.textContent || "Cliente";
+
+  if (!phone) {
+    showToast("Este cliente no tiene teléfono para llamar.", "error");
+    return;
+  }
+
+  setCallButtonsState(true);
+
+  try {
+    /**
+     * IMPORTANTE:
+     * Usamos BX24.im.phoneTo para abrir el widget flotante nativo de Bitrix
+     * abajo a la derecha. Evitamos Messenger.startPhoneCall porque en este portal
+     * abre el dialer grande centrado y bloquea las cards.
+     */
+    if (window.BX24?.im && typeof window.BX24.im.phoneTo === "function") {
+      window.BX24.im.phoneTo(phone);
+    } else if (window.top?.BX24?.im && typeof window.top.BX24.im.phoneTo === "function") {
+      window.top.BX24.im.phoneTo(phone);
+    } else {
+      throw new Error("BX24.im.phoneTo no está disponible en este portal/contexto.");
+    }
+
+    showToast(`Llamada enviada a Bitrix para ${name}.`);
+  } catch (e) {
+    console.error("Error iniciando llamada Bitrix:", e);
+    showToast("No se pudo iniciar la llamada. Revisa telefonía/permisos de Bitrix.", "error");
+  } finally {
+    setCallButtonsState(false);
+  }
+}
+
+function bindDetalleCallButtons() {
+  initCallPanelControls();
+
+  ["btn-call-phone-inline"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn || btn.dataset.boundCall === "1") return;
+
+    btn.dataset.boundCall = "1";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      callClienteBitrix();
+    });
+  });
+}
+
+
 async function openDetalle(id) {
   const row = STATE.rows.find((x) => String(x.id) === String(id));
   if (!row) return;
 
   CURRENT_CTX.row = row;
+  bindDetalleCallButtons();
 
   hideById("#view-home");
   showById("#view-detalle");
@@ -1391,8 +1560,7 @@ async function openDetalle(id) {
   qs("#dtl-person").value = row.nombre || "";
   qs("#dtl-email").value = row.email || "";
   qs("#dtl-phone").value = row.phone || "";
-
-  fillMunicipioSelect(row.municipioId || "");
+fillMunicipioSelect(row.municipioId || "");
 
   fetchContactById(row.contactId)
     .then((contactFull) => {
@@ -1404,7 +1572,7 @@ async function openDetalle(id) {
 
       qs("#dtl-email").value = row.email;
       qs("#dtl-phone").value = row.phone;
-      fillAllContactDetailSelects(contactFull);
+fillAllContactDetailSelects(contactFull);
     })
     .catch((e) => console.warn("No se pudo completar email/teléfono:", e));
 
@@ -1428,7 +1596,7 @@ async function openDetalle(id) {
   const btnBack = qs("#btn-back");
   if (btnBack) {
     btnBack.onclick = () => {
-      hideById("#view-detalle");
+hideById("#view-detalle");
       showById("#view-home");
     };
   }
@@ -1518,7 +1686,7 @@ async function renderCampaignCardsByContact(contactId) {
         console.error("Error consultando producto de campaña:", campanaTxt, e);
         return { campanaTxt, producto: null };
       }
-    })
+    }),
   );
 
   wrap.innerHTML = "";
@@ -1533,12 +1701,13 @@ async function renderCampaignCardsByContact(contactId) {
     const estadoSeguimiento = statusMap[cardKey] || "Por completar";
 
     const card = document.createElement("div");
-    card.className = "bg-white border border-slate-200 shadow-sm rounded-2xl p-6";
+    card.className =
+      "bg-white border border-slate-200 shadow-sm rounded-2xl p-4 sm:p-6 min-w-0";
 
     card.innerHTML = `
-  <div class="flex items-start justify-between gap-3">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
     <div>
-      <div class="text-xl font-semibold text-slate-900">
+      <div class="text-xl font-semibold text-slate-900 text-safe">
         ${escapeHtml(campanaTxt)}
       </div>
     </div>
@@ -1548,7 +1717,7 @@ async function renderCampaignCardsByContact(contactId) {
     </div>
   </div>
 
-  <div class="mt-6 flex items-center justify-between">
+  <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <div class="text-sm font-medium ${
       estadoSeguimiento === "Completado"
         ? "text-green-600"
@@ -1560,7 +1729,7 @@ async function renderCampaignCardsByContact(contactId) {
     </div>
 
     <button 
-      class="btn-detalle px-4 py-2 rounded-full border border-blue-500 text-blue-500 text-sm font-medium hover:bg-blue-50 transition"
+      class="btn-detalle w-full sm:w-auto px-4 py-2 rounded-full border border-blue-500 text-blue-500 text-sm font-medium hover:bg-blue-50 transition"
     >
       Detalle
     </button>
@@ -1729,13 +1898,19 @@ async function ensureContactEnumOption(fieldCode, valueText) {
   let option = findEnumOptionByValue(userField.LIST || [], cleanValue);
 
   if (!option) {
-    await updateContactUserfieldList(userField.ID, userField.LIST || [], cleanValue);
+    await updateContactUserfieldList(
+      userField.ID,
+      userField.LIST || [],
+      cleanValue,
+    );
     const refreshedField = await getContactUserfieldByName(fieldCode);
     option = findEnumOptionByValue(refreshedField?.LIST || [], cleanValue);
   }
 
   if (!option?.ID) {
-    throw new Error(`No se pudo crear la opción "${cleanValue}" en ${fieldCode}.`);
+    throw new Error(
+      `No se pudo crear la opción "${cleanValue}" en ${fieldCode}.`,
+    );
   }
 
   CONTACT_DETAIL_ENUMS[fieldCode] = {
@@ -1756,7 +1931,9 @@ async function getContactDetailFieldValues(fieldKey) {
   if (selectedValues.includes(CONTACT_DETAIL_OTHER_VALUE)) {
     const manualValue = qs(cfg.otherSelector)?.value.trim() || "";
     if (!manualValue) {
-      throw new Error(`Debes escribir la opción manual para ${cfg.placeholder}.`);
+      throw new Error(
+        `Debes escribir la opción manual para ${cfg.placeholder}.`,
+      );
     }
 
     const newId = await ensureContactEnumOption(cfg.code, manualValue);
@@ -1765,7 +1942,12 @@ async function getContactDetailFieldValues(fieldKey) {
     // Deja la nueva opción marcada visualmente después de crearla.
     await loadContactDetailEnums();
     const currentContact = await fetchContactById(CURRENT_CTX?.row?.contactId);
-    const nextSelected = [...new Set([...normalizeMultiUfValues(currentContact?.[cfg.code]), ...values])];
+    const nextSelected = [
+      ...new Set([
+        ...normalizeMultiUfValues(currentContact?.[cfg.code]),
+        ...values,
+      ]),
+    ];
     fillContactDetailSelect(
       cfg.selector,
       CONTACT_DETAIL_ENUMS[cfg.code] || {},
@@ -2193,9 +2375,18 @@ async function saveContactFromDetalle() {
       NAME,
       LAST_NAME,
       UF_CRM_1722975246: municipioId || null,
-      UF_CRM_1723205267: formatContactDetailValueForBitrix("UF_CRM_1723205267", viajesFuturosIds),
-      UF_CRM_1759870385: formatContactDetailValueForBitrix("UF_CRM_1759870385", tipoContactoIds),
-      UF_CRM_1671644220: formatContactDetailValueForBitrix("UF_CRM_1671644220", viajesRealizadosIds),
+      UF_CRM_1723205267: formatContactDetailValueForBitrix(
+        "UF_CRM_1723205267",
+        viajesFuturosIds,
+      ),
+      UF_CRM_1759870385: formatContactDetailValueForBitrix(
+        "UF_CRM_1759870385",
+        tipoContactoIds,
+      ),
+      UF_CRM_1671644220: formatContactDetailValueForBitrix(
+        "UF_CRM_1671644220",
+        viajesRealizadosIds,
+      ),
     };
 
     if (email) fields.EMAIL = emailPayload;
@@ -2244,6 +2435,9 @@ async function saveContactFromDetalle() {
     console.error("No se pudo preparar la actualización del contacto:", e);
     setActualizarButtonState("idle");
     hideDetalleLoader();
-    showToast(e?.message || "No se pudo preparar la actualización del contacto.", "error");
+    showToast(
+      e?.message || "No se pudo preparar la actualización del contacto.",
+      "error",
+    );
   }
 }
