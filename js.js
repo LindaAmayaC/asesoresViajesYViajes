@@ -312,10 +312,10 @@ const CONTACT_DETAIL_FIELDS = {
     placeholder: "Viajes futuros",
   },
   tipoContacto: {
-    code: "UF_CRM_1759870385",
+    code: "TYPE_ID",
     selector: "#dtl-tipo-contacto",
-    otherSelector: "#dtl-tipo-contacto-otro",
-    placeholder: "Tipo contacto",
+    otherSelector: "",
+    placeholder: "Tipo de cliente",
   },
   viajesRealizados: {
     code: "UF_CRM_1671644220",
@@ -356,41 +356,61 @@ function loadMunicipioEnum() {
   });
 }
 
-function loadContactDetailEnums() {
-  return new Promise((resolve, reject) => {
-    BX24.callMethod("crm.contact.fields", {}, function (result) {
-      if (result.error()) {
-        reject(result.error());
+async function loadContactDetailEnums() {
+  try {
+    const fields = await bxCall("crm.contact.fields", {});
+    CONTACT_DETAIL_ENUMS = {};
+    CONTACT_DETAIL_META = {};
+
+    Object.values(CONTACT_DETAIL_FIELDS).forEach(({ code }) => {
+      CONTACT_DETAIL_ENUMS[code] = {};
+
+      // TYPE_ID es un campo estándar crm_status. Sus opciones NO siempre llegan
+      // en crm.contact.fields; se cargan más abajo con crm.status.list CONTACT_TYPE.
+      if (code === "TYPE_ID") {
+        CONTACT_DETAIL_META[code] = { isMultiple: false, source: "crm.status.list" };
         return;
       }
 
-      const fields = result.data() || {};
-      CONTACT_DETAIL_ENUMS = {};
+      const f = fields?.[code];
+      const items = Array.isArray(f?.items) ? f.items : [];
 
-      Object.values(CONTACT_DETAIL_FIELDS).forEach(({ code }) => {
-        const f = fields[code];
-        const items = Array.isArray(f?.items) ? f.items : [];
+      CONTACT_DETAIL_META[code] = {
+        // Bitrix puede devolver isMultiple como true, "Y" o 1 según el método/portal.
+        isMultiple:
+          f?.isMultiple === true ||
+          f?.isMultiple === "Y" ||
+          f?.MULTIPLE === "Y" ||
+          f?.multiple === true,
+        source: "crm.contact.fields",
+      };
 
-        CONTACT_DETAIL_ENUMS[code] = {};
-        CONTACT_DETAIL_META[code] = {
-          // Bitrix puede devolver isMultiple como true, "Y" o 1 según el método/portal.
-          isMultiple:
-            f?.isMultiple === true ||
-            f?.isMultiple === "Y" ||
-            f?.MULTIPLE === "Y" ||
-            f?.multiple === true,
-        };
-
-        items.forEach((it) => {
-          const id = String(it.ID);
-          const text = String(it.VALUE || "").trim();
-          if (id && text) CONTACT_DETAIL_ENUMS[code][id] = text;
-        });
+      items.forEach((it) => {
+        const id = String(it.ID);
+        const text = String(it.VALUE || "").trim();
+        if (id && text) CONTACT_DETAIL_ENUMS[code][id] = text;
       });
-
-      resolve();
     });
-  });
+
+    // Opciones oficiales del campo estándar Tipo de contacto / Tipo de cliente.
+    const contactTypes = await bxCall("crm.status.list", {
+      order: { SORT: "ASC" },
+      filter: { ENTITY_ID: "CONTACT_TYPE" },
+    });
+
+    CONTACT_DETAIL_ENUMS.TYPE_ID = {};
+    (Array.isArray(contactTypes) ? contactTypes : []).forEach((it) => {
+      // Para campos crm_status Bitrix guarda el STATUS_ID, no el ID numérico interno.
+      const id = String(it.STATUS_ID || "").trim();
+      const text = String(it.NAME || it.NAME_INIT || it.STATUS_ID || "").trim();
+      if (id && text) CONTACT_DETAIL_ENUMS.TYPE_ID[id] = text;
+    });
+
+    CONTACT_DETAIL_META.TYPE_ID = { isMultiple: false, source: "crm.status.list" };
+  } catch (e) {
+    console.error("No se pudieron cargar las listas de detalle:", e);
+    throw e;
+  }
 }
 
 function normalizeMultiUfValues(value) {
@@ -448,8 +468,9 @@ function fillContactDetailSelect(
   if (!sel) return;
 
   const selectedSet = new Set(normalizeMultiUfValues(selectedIds));
+  const isSingleType = selector === "#dtl-tipo-contacto";
   sel.innerHTML = "";
-  sel.multiple = true;
+  sel.multiple = !isSingleType;
 
   Object.entries(enumMap || {})
     .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
@@ -461,10 +482,12 @@ function fillContactDetailSelect(
       sel.appendChild(opt);
     });
 
-  const otherOpt = document.createElement("option");
-  otherOpt.value = CONTACT_DETAIL_OTHER_VALUE;
-  otherOpt.textContent = "➕ Otra opción...";
-  sel.appendChild(otherOpt);
+  if (!isSingleType && otherSelector) {
+    const otherOpt = document.createElement("option");
+    otherOpt.value = CONTACT_DETAIL_OTHER_VALUE;
+    otherOpt.textContent = "➕ Otra opción...";
+    sel.appendChild(otherOpt);
+  }
 
   sel.classList.add("hidden");
 
@@ -484,6 +507,7 @@ function renderContactDetailMultiSelect(
   const sel = qs(selector);
   if (!sel) return;
 
+  const isMultiple = sel.multiple;
   const wrapperId = `${sel.id || selector.replace(/[^a-z0-9]/gi, "_")}-ms-ui`;
   let wrapper = document.getElementById(wrapperId);
 
@@ -501,7 +525,9 @@ function renderContactDetailMultiSelect(
     (opt) => opt.selected && opt.value === CONTACT_DETAIL_OTHER_VALUE,
   );
   const label = selectedOptions.length
-    ? `${selectedOptions.length} seleccionado${selectedOptions.length === 1 ? "" : "s"}`
+    ? isMultiple
+      ? `${selectedOptions.length} seleccionado${selectedOptions.length === 1 ? "" : "s"}`
+      : selectedOptions[0]?.textContent || "Seleccionado"
     : placeholder;
 
   const optionsHtml = [...sel.options]
@@ -515,7 +541,8 @@ function renderContactDetailMultiSelect(
       return `
         <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition">
           <input
-            type="checkbox"
+            type="${isMultiple ? "checkbox" : "radio"}"
+            name="${escapeHtml(sel.id || "contact-detail-single")}"
             data-ms-value="${escapeHtml(opt.value)}"
             ${checked}
             class="h-4 w-4 rounded border-slate-300 text-[#1d73ea] focus:ring-[#1d73ea]/30"
@@ -571,7 +598,15 @@ function renderContactDetailMultiSelect(
     cb.addEventListener("change", () => {
       const value = String(cb.dataset.msValue || "");
       const opt = [...sel.options].find((item) => String(item.value) === value);
-      if (opt) opt.selected = cb.checked;
+
+      if (!isMultiple) {
+        [...sel.options].forEach((item) => {
+          item.selected = false;
+        });
+        if (opt) opt.selected = true;
+      } else if (opt) {
+        opt.selected = cb.checked;
+      }
 
       sel.dispatchEvent(new Event("change", { bubbles: true }));
       renderContactDetailMultiSelect(selector, placeholder, otherSelector);
@@ -2379,8 +2414,8 @@ async function saveContactFromDetalle() {
         "UF_CRM_1723205267",
         viajesFuturosIds,
       ),
-      UF_CRM_1759870385: formatContactDetailValueForBitrix(
-        "UF_CRM_1759870385",
+      TYPE_ID: formatContactDetailValueForBitrix(
+        "TYPE_ID",
         tipoContactoIds,
       ),
       UF_CRM_1671644220: formatContactDetailValueForBitrix(
