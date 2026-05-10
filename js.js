@@ -1438,7 +1438,7 @@ function renderTabla() {
 /*************************************************
  * 5) Detalle de contacto
  *************************************************/
-let CURRENT_CTX = { row: null };
+let CURRENT_CTX = { row: null, contactFull: null };
 
 
 function bxCall(method, params = {}) {
@@ -1595,7 +1595,8 @@ async function openDetalle(id) {
   qs("#dtl-person").value = row.nombre || "";
   qs("#dtl-email").value = row.email || "";
   qs("#dtl-phone").value = row.phone || "";
-fillMunicipioSelect(row.municipioId || "");
+  if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
+  fillMunicipioSelect(row.municipioId || "");
 
   fetchContactById(row.contactId)
     .then((contactFull) => {
@@ -1607,7 +1608,9 @@ fillMunicipioSelect(row.municipioId || "");
 
       qs("#dtl-email").value = row.email;
       qs("#dtl-phone").value = row.phone;
-fillAllContactDetailSelects(contactFull);
+      if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
+      CURRENT_CTX.contactFull = contactFull;
+      fillAllContactDetailSelects(contactFull);
     })
     .catch((e) => console.warn("No se pudo completar email/teléfono:", e));
 
@@ -2324,6 +2327,7 @@ async function saveContactFromDetalle() {
   const email = qs("#dtl-email")?.value.trim() || "";
   const phone = qs("#dtl-phone")?.value.trim() || "";
   const municipioId = qs("#dtl-place")?.value || "";
+  const comments = qs("#dtl-comments")?.value.trim() || "";
   const placeTxt = MUNICIPIO_ENUM[municipioId] || "";
   let viajesFuturosIds = [];
   let tipoContactoIds = [];
@@ -2346,6 +2350,14 @@ async function saveContactFromDetalle() {
     viajesRealizadosIds = await getContactDetailFieldValues("viajesRealizados");
 
     const contact = await fetchContactById(row.contactId);
+
+    // COMMENTS: no mostramos historial en pantalla, pero sí lo conservamos en Bitrix.
+    // Formato solicitado: fecha sin hora + comentario.
+    const comentariosActuales = contact?.COMMENTS || "";
+    const fechaComentario = new Date().toLocaleDateString("es-CO");
+    const commentsFinal = comments
+      ? `${comentariosActuales}\n${fechaComentario} - ${comments}`.trim()
+      : comentariosActuales;
 
     const emails = Array.isArray(contact?.EMAIL) ? contact.EMAIL : [];
     const phones = Array.isArray(contact?.PHONE) ? contact.PHONE : [];
@@ -2409,6 +2421,7 @@ async function saveContactFromDetalle() {
     const fields = {
       NAME,
       LAST_NAME,
+      COMMENTS: commentsFinal,
       UF_CRM_1722975246: municipioId || null,
       UF_CRM_1723205267: formatContactDetailValueForBitrix(
         "UF_CRM_1723205267",
@@ -2455,6 +2468,8 @@ async function saveContactFromDetalle() {
         row.viajesFuturosIds = viajesFuturosIds;
         row.tipoContactoIds = tipoContactoIds;
         row.viajesRealizadosIds = viajesRealizadosIds;
+        row.comments = comments;
+        if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
 
         qs("#dtl-nombre").textContent = row.nombre || "Contacto";
         renderTabla();
