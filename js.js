@@ -2182,57 +2182,53 @@ qs("#md-guardar")?.addEventListener("click", async () => {
     return;
   }
 
+  // Historial de gestiones de la card.
+  // IMPORTANTE: este campo es TEXTO, no LISTA. Así los asesores pueden guardar
+  // sin permisos de administrador, porque solo se actualiza el contacto.
+  const historialFieldCode = "UF_CRM_1778554107651";
   const resumen = notas
-    ? `${campana} - ${estadoCliente} - ${notas} - ${fechaActual}`
-    : `${campana} - ${estadoCliente} - ${fechaActual}`;
+    ? `${fechaActual} | ${campana} | ${estadoCliente} | ${notas}`
+    : `${fechaActual} | ${campana} | ${estadoCliente}`;
 
   try {
     setModalGuardarState("loading");
     showModalLoader();
-    const fieldCode = "UF_CRM_1776206743575";
 
-    const userField = await getContactUserfieldByName(fieldCode);
+    const contactActual = await fetchContactById(contactId);
+    const historialActual = String(contactActual?.[historialFieldCode] || "").trim();
+    const historialFinal = historialActual
+      ? `${historialActual}
+${resumen}`
+      : resumen;
 
-    if (!userField?.ID) {
-      showToast(`No se encontró el campo ${fieldCode}.`, "error");
-      setModalGuardarState("idle");
-      hideModalLoader();
-      return;
-    }
-
-    let option = findEnumOptionByValue(userField.LIST || [], resumen);
-
-    if (!option) {
-      await updateContactUserfieldList(
-        userField.ID,
-        userField.LIST || [],
-        resumen,
-      );
-
-      const refreshedField = await getContactUserfieldByName(fieldCode);
-      option = findEnumOptionByValue(refreshedField?.LIST || [], resumen);
-    }
-
-    if (!option?.ID) {
-      showToast("No se pudo obtener el ID de la opción creada.", "error");
-      setModalGuardarState("idle");
-      hideModalLoader();
-      return;
-    }
-
-    await updateContactEnumValue(contactId, fieldCode, option.ID);
+    await bxCall("crm.contact.update", {
+      id: String(contactId),
+      fields: {
+        [historialFieldCode]: historialFinal,
+      },
+    });
 
     if (estadoRaw === "interesado") {
       const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
 
-      await createInteresadoDeal({
-        contactId,
-        campana,
-        estadoCliente,
-        notas,
-        asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
-        nombreCliente,
-      });
+      // La creación del negocio es complementaria. Si Bitrix bloquea la creación
+      // o la opción de lista del negocio, no debe perderse el historial guardado.
+      try {
+        await createInteresadoDeal({
+          contactId,
+          campana,
+          estadoCliente,
+          notas,
+          asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
+          nombreCliente,
+        });
+      } catch (dealError) {
+        console.warn("Historial guardado, pero no se pudo crear el negocio:", dealError);
+        showToast(
+          "Historial guardado. No se pudo crear el negocio asociado.",
+          "error",
+        );
+      }
     }
 
     const statusMap = loadCardStatusMap();
@@ -2258,10 +2254,10 @@ qs("#md-guardar")?.addEventListener("click", async () => {
       setModalGuardarState("idle");
     }, 500);
   } catch (e) {
-    console.error("Error guardando opción dinámica:", e);
+    console.error("Error guardando historial de la card:", e);
     setModalGuardarState("idle");
     hideModalLoader();
-    showToast("No se pudo guardar la opción dinámica en la lista.", "error");
+    showToast("No se pudo guardar el historial de la card.", "error");
   }
 });
 
