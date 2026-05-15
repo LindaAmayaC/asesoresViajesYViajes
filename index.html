@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -14,73 +14,209 @@
 
   <!-- Icons -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+
+  <!-- Responsive hardening: evita corte horizontal en pantallas pequeñas -->
+  <style>
+    html,
+    body {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+
+    img,
+    svg,
+    canvas,
+    video,
+    iframe {
+      max-width: 100%;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      max-width: 100%;
+    }
+
+    .app-safe-wrap {
+      width: min(100%, 1280px);
+      max-width: 100%;
+    }
+
+    .text-safe {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    #drawer {
+      max-width: 100vw;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    #modal {
+      padding: 12px;
+      overflow-y: auto;
+      align-items: flex-start;
+    }
+
+    #modal > div:first-child {
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      width: min(100%, 32rem);
+      margin: auto 0;
+    }
+
+    [data-ms-panel],
+    [data-cdms-panel] {
+      max-width: calc(100vw - 32px);
+    }
+
+    @media (max-width: 640px) {
+      #view-home header,
+      #view-home main,
+      #view-detalle > div {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+      }
+
+      #view-home header .mt-3 {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      #btn-filtros,
+      #btn-aplicar-filtros,
+      #btn-cancelar-filtros,
+      #btn-llamar-cliente,
+      #btn-actualizar-contacto {
+        width: 100%;
+        justify-content: center;
+      }
+
+      #drawer {
+        width: 100vw !important;
+        border-radius: 0 !important;
+        padding: 16px !important;
+      }
+
+      #drawer .mt-6.flex,
+      #modal .p-6.border-t {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      #filter-summary {
+        overflow-wrap: anywhere;
+      }
+
+      #view-home table,
+      #view-home thead,
+      #view-home tbody,
+      #view-home tr,
+      #view-home th,
+      #view-home td {
+        display: block;
+        width: 100% !important;
+      }
+
+      #view-home thead {
+        display: none;
+      }
+
+      #view-home tbody {
+        background: #f8fafc;
+      }
+
+      #view-home tr {
+        margin: 10px 0;
+        border: 1px solid #e2e8f0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: white;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+      }
+
+      #view-home td {
+        padding: 12px 14px !important;
+        border-bottom: 1px solid #f1f5f9;
+        text-align: left !important;
+        overflow: visible !important;
+      }
+
+      #view-home td:last-child {
+        border-bottom: 0;
+      }
+
+      #view-home td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 6px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .02em;
+        color: #64748b;
+        text-transform: uppercase;
+      }
+
+      #view-home td[data-label="Acciones"] > div {
+        justify-content: stretch;
+      }
+
+      #view-home .btn-ver-mas {
+        width: 100%;
+        justify-content: center;
+        border-radius: 14px;
+        background: #e9f0ff;
+        color: #1d73ea;
+        padding: 10px 12px;
+      }
+
+      #dtl-nombre {
+        font-size: 1.25rem !important;
+        line-height: 1.75rem !important;
+        overflow-wrap: anywhere;
+      }
+
+      #dtl-cards {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+
+      #call-panel {
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+      }
+
+      #global-loader {
+        padding: 12px;
+      }
+
+      #global-loader > div {
+        width: 100% !important;
+        padding: 18px !important;
+      }
+    }
+  </style>
+
 </head>
 
 <body class="bg-[#f4f8ff] min-h-screen text-gray-800">
 
-  <section id="view-login" class="min-h-screen w-full bg-white hidden">
-    <div class="min-h-screen grid grid-cols-1 md:grid-cols-2">
-      <!-- LEFT: Form -->
-      <div class="flex items-center justify-center px-6 py-12 bg-white">
-        <div class="w-full max-w-sm">
-          <!-- Logo -->
-          <div class="mb-8 flex justify-center">
-            <img src="https://viajesyviajes.com/wp-content/uploads/2017/08/logo-vyv-600x125.png" alt="Viajes y Viajes"
-              class="h-10 w-auto object-contain" loading="eager" referrerpolicy="no-referrer" />
-          </div>
-
-
-          <h2 class="text-2xl font-bold text-slate-900 text-center ">Bienvenido Asesor </h2>
-
-
-          <div class="mt-8 space-y-4">
-            <div>
-
-              <input id="in-asesor" type="text" inputmode="numeric" autocomplete="off"
-                placeholder="Ingrese numero de asesor" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3
-                     text-slate-800 placeholder:text-slate-400
-                     focus:outline-none focus:ring-4 focus:ring-[#1d73ea]/20 focus:border-[#1d73ea]" />
-              <p id="in-asesor-error" class="mt-2 text-sm text-rose-600 hidden"></p>
-            </div>
-
-            <button id="btn-login" class="w-full rounded-xl bg-[#1d73ea] px-2 py-3 font-semibold text-white
-                   hover:bg-[#175fc0] active:scale-[0.99]
-                   shadow-lg shadow-[#1d73ea]/20 focus:outline-none focus:ring-4 focus:ring-[#1d73ea]/25">
-              Iniciar
-            </button>
-
-            <div class=" text-xs text-slate-400">
-              Â© <span id="login-year"></span> Viajes y Viajes Workflow S.A.S
-
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- RIGHT: Image -->
-      <div class="relative hidden md:block">
-        <!-- Background image -->
-        <div
-  class="absolute inset-0 bg-cover bg-center"
-  style="background-image:url('https://i.pinimg.com/736x/e1/c2/26/e1c2264ee23a7ed95aa8d33b3d660370.jpg');">
-</div>
-
-          <!-- Overlay -->
-          <div class="absolute inset-0 bg-gradient-to-tr from-slate-900/30 via-slate-900/10 to-transparent"></div>
-
-          <!-- Center badge -->
-          <div class="absolute inset-0 flex items-center justify-center">
-
-          </div>
-        </div>
-      </div>
-      <div class="flex justify-end mb-6">
-        <button id="btn-guardar-contacto"
-          class="px-4 py-2 rounded-xl bg-[#00EFE8] text-white font-semibold hover:brightness-110">
-          Actualizar datos del cliente
-        </button>
-      </div>
-  </section>
 
   <script>
     // Solo para el aÃ±o del footer
@@ -91,32 +227,36 @@
 
 
   <!-- ========= LISTA / HOME ========= -->
-  <section id="view-home" class="">
-    <header class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-      <h2 class="text-xl font-bold">Contactos Activos</h2>
+  <section id="view-home" class="hidden">
+
+    <header class="app-safe-wrap mx-auto px-4 sm:px-6 py-6">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-xl font-bold">Contactos Activos</h2>
+      </div>
+
       <div class="mt-3 flex items-center gap-3">
         <div class="relative flex-1">
           <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-400"></i>
           <input id="buscar" class="w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200"
             placeholder="Buscar contacto,campana." />
         </div>
+
         <button id="btn-filtros"
           class="px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center gap-2">
           <i class="fa-solid fa-sliders"></i><span>Filtros</span>
         </button>
       </div>
     </header>
-
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 pb-10">
-      <div class="overflow-hidden bg-white shadow-xl rounded-2xl">
-       <table class="min-w-full table-fixed">
+    <main class="app-safe-wrap mx-auto px-4 sm:px-6 pb-10">
+      <div class="overflow-hidden bg-white shadow-xl rounded-2xl responsive-table-shell">
+        <table class="min-w-full table-fixed">
           <thead class="bg-[#e9f0ff]">
-  <tr class="text-left text-sm text-gray-700">
-    <th class="px-5 py-3 font-semibold w-[30%]">Nombre Cliente</th>
-    <th class="px-5 py-3 font-semibold w-[55%]">Campaña</th>
-    <th class="px-5 py-3 font-semibold text-right w-[15%]">Acciones</th>
-  </tr>
-</thead>
+            <tr class="text-left text-sm text-gray-700">
+              <th class="px-5 py-3 font-semibold w-[30%]">Nombre Cliente</th>
+              <th class="px-5 py-3 font-semibold w-[55%]">Campaña</th>
+              <th class="px-5 py-3 font-semibold text-right w-[15%]">Acciones</th>
+            </tr>
+          </thead>
           <tbody id="tbody-clientes" class="text-sm"></tbody>
         </table>
       </div>
@@ -126,14 +266,30 @@
   <!-- ========= DRAWER FILTROS ========= -->
   <aside id="drawer"
     class="fixed inset-y-0 right-0 w-full sm:w-[380px] bg-white shadow-2xl rounded-l-2xl p-6 z-50 transform transition-transform duration-300 translate-x-full hidden">
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-semibold">Filtros de Campañas</h3>
-      <button id="btn-close-drawer" class="text-gray-500 hover:text-gray-800">
-        <i class="fa-solid fa-xmark text-xl"></i>
+    <div class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-2 rounded-full bg-[#e9f0ff] px-3 py-1 text-xs font-semibold text-[#1d73ea] mb-3">
+          <i class="fa-solid fa-sliders"></i>
+          Filtros rápidos
+        </div>
+        <h3 class="text-xl font-extrabold text-slate-900">Filtrar contactos</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-5">
+          Selecciona campañas o asesores y aplica para actualizar la tabla.
+        </p>
+      </div>
+
+      <button id="btn-close-drawer"
+        class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition">
+        <i class="fa-solid fa-xmark text-lg"></i>
       </button>
     </div>
 
-    <div class="mb-5">
+    <div id="filter-summary" class="mb-5 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Filtros activos:</span>
+      <span id="filter-summary-text">Ninguno</span>
+    </div>
+
+    <div class="mb-5 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
       <p class="text-sm font-semibold mb-2">
         <i class="fa-solid fa-globe text-[#1d73ea] mr-2"></i>Campañas
       </p>
@@ -166,11 +322,12 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="mb-5">
-        <p class="text-sm font-semibold mb-2">
-          <i class="fa-solid fa-user mr-2 text-[#1d73ea]"></i>Asesores
-        </p>
+    <div class="mb-5 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+      <p class="text-sm font-semibold mb-2">
+        <i class="fa-solid fa-user mr-2 text-[#1d73ea]"></i>Asesores
+      </p>
 
         <div id="ms-asesores" class="relative" data-ms>
           <!-- Trigger -->
@@ -203,28 +360,21 @@
         </div>
       </div>
 
-      <div class="mb-6">
-        <p class="text-sm font-semibold mb-2">
-          <i class="fa-solid fa-calendar-days mr-2 text-[#1d73ea]"></i>Fechas
-        </p>
-        <input id="fx-inicio" type="date" class="w-full rounded-xl border border-gray-200 mb-2" />
-        <input id="fx-fin" type="date" class="w-full rounded-xl border border-gray-200" />
-      </div>
 
-      <div class="flex items-center justify-between">
-        <button id="btn-cancelar-filtros" class="px-3 py-2 rounded-xl border border-gray-200 bg-white">
-          Cancelar
-        </button>
-        <button id="btn-aplicar-filtros"
-          class="px-4 py-2 rounded-xl text-white font-semibold bg-[#1d73ea] hover:brightness-110">
-          Aplicar
-        </button>
-      </div>
+    <div class="mt-6 flex items-center justify-between gap-3 border-t border-slate-100 pt-5">
+      <button id="btn-cancelar-filtros" class="px-4 py-2.5 rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">
+        Cerrar
+      </button>
+      <button id="btn-aplicar-filtros"
+        class="flex-1 px-4 py-2.5 rounded-2xl text-white text-sm font-bold bg-[#1d73ea] hover:brightness-110 shadow-lg shadow-blue-200 transition">
+        Aplicar filtros
+      </button>
+    </div>
   </aside>
 
   <!-- ========= DETALLE CLIENTE ========= -->
   <section id="view-detalle" class="hidden">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 relative">
+    <div class="app-safe-wrap mx-auto px-4 sm:px-6 py-6 relative">
       <button id="btn-back" class="text-[#1d73ea] mb-4 inline-flex items-center gap-2">
         <i class="fa-solid fa-arrow-left"></i><span>Volver</span>
       </button>
@@ -234,163 +384,267 @@
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <input id="dtl-person" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Nombre" />
-        <input id="dtl-email" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Email (si existe)" />
-        <input id="dtl-phone" class="rounded-xl border border-gray-200 px-3 py-2" placeholder="Telefono (si existe)" />
-        <select id="dtl-place" class="rounded-xl border border-gray-200 px-3 py-2 bg-white">
-  <option value="">Selecciona ciudad</option>
-</select>
-      </div>
-<div class="flex justify-end mb-4">
-  <button id="btn-actualizar-contacto"
-    class="px-4 py-2 rounded-xl bg-[#1d73ea] text-white text-sm font-semibold hover:bg-[#155ac7] transition shadow-sm">
-    Actualizar datos
-  </button>
-</div>
+        <input id="dtl-person" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Nombre" />
+        <input id="dtl-email" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Email" />
+        <div class="relative">
+          <input id="dtl-phone" class="w-full h-[45px] pl-3 pr-12 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none" placeholder="Teléfono" />
+          <button id="btn-call-phone-inline" type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Llamar al cliente">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+        </div>
+        <select id="dtl-place" class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none">
+          <option value="">Selecciona ciudad</option>
+        </select>
 
-<h2 class="text-xl font-semibold mb-3">Campañas Activas</h2>
+        <div class="space-y-1">
+          <label class="block text-xs font-bold text-slate-700">Viajes futuros</label>
+          <select id="dtl-viajes-futuros" multiple size="5" class="hidden">
+            <option value="">Viajes futuros</option>
+          </select>
+          <input id="dtl-viajes-futuros-otro" class="hidden w-full h-[54px] rounded-[16px] border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1d73ea]/20" placeholder="Escribe otra opción de viajes futuros" />
+        </div>
+
+        <div class="space-y-1">
+          <label class="block text-xs font-bold text-slate-700">Tipo de cliente</label>
+          <select id="dtl-tipo-contacto" class="hidden">
+            <option value="">Tipo de cliente</option>
+          </select>
+        </div>
+
+        <div class="space-y-1 md:col-span-2">
+          <label class="block text-xs font-bold text-slate-700">Viajes realizados</label>
+          <select id="dtl-viajes-realizados" multiple size="6" class="hidden">
+            <option value="">Viajes realizados</option>
+          </select>
+          <input id="dtl-viajes-realizados-otro" class="hidden w-full h-[54px] rounded-[16px] border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1d73ea]/20" placeholder="Escribe otra opción de viajes realizados" />
+        </div>
+        <div class="space-y-1 md:col-span-2">
+        <label class="block text-xs font-bold text-slate-700">Comentarios</label>
+        <textarea
+          id="dtl-comments"
+          rows="4"
+          class="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none"
+          placeholder="Escribe comentarios del cliente..."
+        ></textarea>
+      </div>
+      </div>
+      
+      <div class="flex flex-wrap justify-end gap-3 mb-4">
+        <button id="btn-actualizar-contacto"
+          class="px-4 py-2 rounded-xl bg-[#1d73ea] text-white text-sm font-semibold hover:bg-[#155ac7] transition shadow-sm">
+          Actualizar datos
+        </button>
+      </div>
+
+      <h2 class="text-xl font-semibold mb-3">Campañas Activas</h2>
+      <div class="flex justify-end mb-4">
+        <button id="btn-toggle-campanas" class="text-sm text-slate-500 hover:text-[#1d73ea] font-medium transition">
+          Ver todas las campañas
+        </button>
+      </div>
       <div id="dtl-cards" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
 
       <div id="detalle-loader"
-  class="absolute inset-0 hidden items-center justify-center bg-white/70 backdrop-blur-[2px] z-20 rounded-3xl">
-  <div class="flex flex-col items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-2xl border border-slate-100">
-    <div class="relative h-12 w-12">
-      <div class="absolute inset-0 rounded-full border-4 border-sky-100"></div>
-      <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
-    </div>
-    <div class="text-center">
-      <p class="text-sm font-semibold text-slate-900">Actualizando datos</p>
-      <p class="text-xs text-slate-500 mt-1">Guardando información del cliente...</p>
-    </div>
-  </div>
-</div>
+        class="absolute inset-0 hidden items-center justify-center bg-white/70 backdrop-blur-[2px] z-20 rounded-3xl">
+        <div class="flex flex-col items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-2xl border border-slate-100">
+          <div class="relative h-12 w-12">
+            <div class="absolute inset-0 rounded-full border-4 border-sky-100"></div>
+            <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin">
+            </div>
+          </div>
+          <div class="text-center">
+            <p class="text-sm font-semibold text-slate-900">Actualizando datos</p>
+            <p class="text-xs text-slate-500 mt-1">Guardando información del cliente...</p>
+          </div>
+        </div>
+      </div>
     </div>
 
   </section>
 
   <!-- ========= MODAL ========= -->
-<div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
-  <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden relative">
-    <div class="bg-gradient-to-r from-[#2f67f6] to-[#2fc7e8] text-white px-8 py-6">
-      <div class="flex items-center justify-between">
-        <h4 id="md-titulo" class="text-2xl font-bold">Nombre campaña</h4>
-        <button id="md-close" class="opacity-90 hover:opacity-100 text-white">
-          <i class="fa-solid fa-xmark text-2xl"></i>
+  <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+    <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden relative">
+      <div class="bg-gradient-to-r from-[#2f67f6] to-[#2fc7e8] text-white px-8 py-6">
+        <div class="flex items-center justify-between">
+          <h4 id="md-titulo" class="text-2xl font-bold">Nombre campaña</h4>
+          <button id="md-close" class="opacity-90 hover:opacity-100 text-white">
+            <i class="fa-solid fa-xmark text-2xl"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 space-y-6 bg-[#f8fafc]">
+        <div class="rounded-2xl bg-slate-100 p-4">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">
+                Fecha inicio
+              </label>
+              <div class="w-full rounded-2xl border border-gray-200 px-4 py-2 bg-gray-50 text-sm text-slate-600">
+                <span id="md-inicio-text">--</span>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">
+                Fecha final
+              </label>
+              <div class="w-full rounded-2xl border border-gray-200 px-4 py-2 bg-gray-50 text-sm text-slate-600">
+                <span id="md-fin-text">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-3xl bg-white/80 p-5">
+          <p class="text-sm font-medium text-slate-600 mb-4">Estado del cliente</p>
+          <div class="flex flex-wrap gap-3">
+            <button data-estado="interesado"
+              class="px-4 py-2 rounded-full bg-[#e6f7ef] text-[#1a7f4b] text-sm font-medium hover:brightness-95 transition">
+              Interesado
+            </button>
+
+            <button data-estado="no_interesado"
+              class="px-4 py-2 rounded-full bg-[#ffecef] text-[#b91937] text-sm font-medium hover:brightness-95 transition">
+              No interesado
+            </button>
+
+            <button data-estado="inseguro"
+              class="px-4 py-2 rounded-full bg-[#fff8e6] text-[#a56a00] text-sm font-medium hover:brightness-95 transition">
+              Inseguro
+            </button>
+          </div>
+        </div>
+
+        <div class="rounded-3xl bg-white/80 p-5">
+          <p class="text-sm font-medium text-slate-600 mb-3">Notas complementarias</p>
+          <textarea id="md-notas" rows="5" class="w-full rounded-2xl border border-gray-200 px-4 py-3 bg-white"
+            placeholder="Escribe tus observaciones..."></textarea>
+        </div>
+      </div>
+
+      <div class="p-6 border-t border-slate-200 bg-white flex items-center justify-end gap-4">
+        <button id="md-cancelar"
+          class="px-6 py-3 rounded-2xl border border-gray-200 bg-white text-slate-600 font-medium">
+          Cancelar
+        </button>
+        <button id="md-guardar"
+          class="px-6 py-3 rounded-2xl text-white font-semibold bg-[#1d73ea] hover:brightness-110">
+          Guardar
+        </button>
+      </div>
+
+    </div>
+    <div id="modal-loader"
+      class="absolute inset-0 hidden items-center justify-center bg-white/90 backdrop-blur-md z-50 rounded-3xl transition-all duration-200">
+
+      <div class="flex flex-col items-center gap-3 bg-white px-6 py-5 rounded-2xl shadow-2xl border border-slate-100">
+        <div class="relative h-12 w-12">
+          <div class="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+          <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
+        </div>
+
+        <div class="text-sm font-semibold text-slate-800">
+          Guardando información...
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Panel flotante de llamada: no bloquea las cards -->
+  <div id="call-panel"
+    class="fixed right-4 bottom-4 z-[60] hidden w-[92%] max-w-sm rounded-3xl border border-emerald-100 bg-white shadow-2xl overflow-hidden">
+    <div class="bg-gradient-to-r from-emerald-500 to-sky-500 px-4 py-3 text-white flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="h-10 w-10 shrink-0 rounded-2xl bg-white/20 flex items-center justify-center">
+          <i class="fa-solid fa-phone-volume"></i>
+        </span>
+        <div class="min-w-0">
+          <p class="text-sm font-bold leading-5">Llamada Bitrix</p>
+          <p id="call-panel-name" class="text-xs text-white/85 truncate">Cliente</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button id="call-panel-min" type="button" class="h-8 w-8 rounded-xl hover:bg-white/15 transition" title="Minimizar">
+          <i class="fa-solid fa-minus"></i>
+        </button>
+        <button id="call-panel-close" type="button" class="h-8 w-8 rounded-xl hover:bg-white/15 transition" title="Cerrar">
+          <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
     </div>
-
-   <div class="p-6 space-y-6 bg-[#f8fafc]">
-  <div class="rounded-2xl bg-slate-100 p-4">
-    <div class="space-y-3">
-      <div>
-        <label class="block text-xs font-medium text-slate-400 mb-1">
-          Fecha inicio
-        </label>
-        <div class="w-full rounded-2xl border border-gray-200 px-4 py-2 bg-gray-50 text-sm text-slate-600">
-          <span id="md-inicio-text">--</span>
+    <div id="call-panel-body" class="p-4">
+      <div class="flex items-start gap-3">
+        <div class="mt-0.5 h-9 w-9 shrink-0 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+          <i class="fa-solid fa-headset"></i>
         </div>
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-slate-400 mb-1">
-          Fecha final
-        </label>
-        <div class="w-full rounded-2xl border border-gray-200 px-4 py-2 bg-gray-50 text-sm text-slate-600">
-          <span id="md-fin-text">--</span>
+        <div class="min-w-0 flex-1">
+          <p id="call-panel-status" class="text-sm font-semibold text-slate-800">Preparando llamada...</p>
+          <p id="call-panel-phone" class="text-xs text-slate-500 mt-1 break-all">--</p>
+          <p class="text-[11px] text-slate-400 mt-2 leading-5">
+            Este panel queda flotante para que puedas seguir usando las cards mientras Bitrix inicia la llamada.
+          </p>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="rounded-3xl bg-white/80 p-5">
-    <p class="text-sm font-medium text-slate-600 mb-4">Estado del cliente</p>
-    <div class="flex flex-wrap gap-3">
-      <button
-        data-estado="interesado"
-        class="px-4 py-2 rounded-full bg-[#e6f7ef] text-[#1a7f4b] text-sm font-medium hover:brightness-95 transition"
-      >
-        Interesado
-      </button>
+  <!-- Loader global PRO -->
+  <div id="global-loader"
+    class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/30 backdrop-blur-[3px]">
+    <div class="w-[92%] max-w-md rounded-3xl bg-white shadow-2xl border border-slate-100 p-6">
+      <div class="flex items-start gap-4">
+        <div class="relative h-14 w-14 shrink-0">
+          <div class="absolute inset-0 rounded-full border-4 border-sky-100"></div>
+          <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <i class="fa-solid fa-cloud-arrow-down text-[#1d73ea] text-sm"></i>
+          </div>
+        </div>
 
-      <button
-        data-estado="no_interesado"
-        class="px-4 py-2 rounded-full bg-[#ffecef] text-[#b91937] text-sm font-medium hover:brightness-95 transition"
-      >
-        No interesado
-      </button>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p id="global-loader-title" class="text-sm font-bold text-slate-900">
+                Cargando módulo
+              </p>
+              <p id="global-loader-detail" class="text-xs text-slate-500 mt-1 leading-5">
+                Preparando información...
+              </p>
+            </div>
 
-      <button
-        data-estado="inseguro"
-        class="px-4 py-2 rounded-full bg-[#fff8e6] text-[#a56a00] text-sm font-medium hover:brightness-95 transition"
-      >
-        Inseguro
-      </button>
-    </div>
-  </div>
+            <span id="global-loader-badge"
+              class="shrink-0 rounded-full bg-[#e9f0ff] px-2.5 py-1 text-xs font-bold text-[#1d73ea]">
+              0%
+            </span>
+          </div>
 
-  <div class="rounded-3xl bg-white/80 p-5">
-    <p class="text-sm font-medium text-slate-600 mb-3">Notas complementarias</p>
-    <textarea
-      id="md-notas"
-      rows="5"
-      class="w-full rounded-2xl border border-gray-200 px-4 py-3 bg-white"
-      placeholder="Escribe tus observaciones..."
-    ></textarea>
-  </div>
-</div>
+          <div class="mt-4">
+            <div class="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div id="global-loader-bar"
+                class="h-full w-0 rounded-full bg-[#1d73ea] transition-all duration-500"></div>
+            </div>
 
-    <div class="p-6 border-t border-slate-200 bg-white flex items-center justify-end gap-4">
-      <button id="md-cancelar" class="px-6 py-3 rounded-2xl border border-gray-200 bg-white text-slate-600 font-medium">
-        Cancelar
-      </button>
-      <button id="md-guardar" class="px-6 py-3 rounded-2xl text-white font-semibold bg-[#1d73ea] hover:brightness-110">
-        Guardar
-      </button>
-    </div>
-   
-  </div>
-<div id="modal-loader"
-  class="absolute inset-0 hidden items-center justify-center bg-white/90 backdrop-blur-md z-50 rounded-3xl transition-all duration-200">
+            <p id="global-loader-progress" class="mt-2 text-xs font-medium text-slate-600">
+              Preparando consulta...
+            </p>
+          </div>
 
-  <div class="flex flex-col items-center gap-3 bg-white px-6 py-5 rounded-2xl shadow-2xl border border-slate-100">
-    <div class="relative h-12 w-12">
-      <div class="absolute inset-0 rounded-full border-4 border-slate-200"></div>
-      <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
-    </div>
-
-    <div class="text-sm font-semibold text-slate-800">
-      Guardando información...
-    </div>
-  </div>
-</div>
-</div>
-
-<!-- Loader global -->
-<div id="global-loader" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/20 backdrop-blur-[2px]">
-  <div class="w-[92%] max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-100 p-6">
-    <div class="flex items-center gap-4">
-      <div class="relative h-12 w-12 shrink-0">
-        <div class="absolute inset-0 rounded-full border-4 border-sky-100"></div>
-        <div class="absolute inset-0 rounded-full border-4 border-transparent border-t-[#1d73ea] animate-spin"></div>
-      </div>
-
-
-      <div class="min-w-0">
-        <p class="text-sm font-semibold text-slate-900">Cargando módulo</p>
-        <p id="global-loader-text" class="text-sm text-slate-500 mt-1">
-          Preparando información...
-        </p>
+          <div class="mt-4 rounded-2xl bg-slate-50 px-4 py-3">
+            <p class="text-[11px] leading-5 text-slate-500">
+              Estamos cargando todos los contactos. Si son muchos registros, puede tomar un poco más.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
-
-    <div class="mt-5 overflow-hidden rounded-full bg-slate-100 h-2">
-      <div class="h-full w-1/2 rounded-full bg-gradient-to-r from-[#1d73ea] to-[#5ea3ff] animate-pulse"></div>
-    </div>
   </div>
-</div>
 
-  <script src="js.js"></script>
+<script src="js.js"></script>
 </body>
 
 </html>
