@@ -21,6 +21,8 @@ let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
 
 let USER_MAP = {}; // ID -> Nombre completo
+let VALID_CAMPAIGNS = new Set();
+let VALID_CAMPAIGN_IDS = [];
 let HOME_READY = false;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -59,6 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     showGlobalLoader("Cargando campañas...");
     await loadCampanaEnum();
+    await loadValidCampaigns();
 
     showGlobalLoader("Preparando asesores...");
 
@@ -671,6 +674,49 @@ function loadCampanaEnum() {
   });
 }
 
+
+
+async function loadValidCampaigns() {
+  try {
+
+    const products = await bxCall(
+      "crm.product.list",
+      {
+        filter: {
+          CATALOG_ID: 24,
+          SECTION_ID: 114,
+          "PROPERTY_358": "Activa"
+        },
+        select: [
+          "ID",
+          "NAME"
+        ]
+      }
+    );
+
+    VALID_CAMPAIGNS = new Set(
+      (products || [])
+        .map(p => String(p.NAME || "").trim())
+        .filter(name => {
+          return !name.toLowerCase().startsWith("ms ");
+        })
+    );
+
+    VALID_CAMPAIGN_IDS = Object.entries(CAMPANA_ENUM)
+      .filter(([id, text]) =>
+        VALID_CAMPAIGNS.has(String(text).trim())
+      )
+      .map(([id]) => String(id));
+
+    console.log("Campañas activas:", VALID_CAMPAIGNS.size);
+    console.log("IDs campañas válidas:", VALID_CAMPAIGN_IDS.length);
+
+  } catch (e) {
+    console.error("Error cargando campañas activas:", e);
+  }
+}
+
+
 async function loadUsersMap() {
   try {
     const users = await bxList("user.get", {
@@ -719,9 +765,13 @@ function mapContactFromBitrix(c) {
   campanaTexts = campanaTexts.filter((c) => {
     if (!c) return false;
 
-    const val = c.toLowerCase().trim();
+    const val = String(c).trim().toLowerCase();
 
-    return val !== "-" && val !== "no seleccionado";
+    if (val === "-" || val === "no seleccionado") {
+      return false;
+    }
+
+    return VALID_CAMPAIGNS.has(String(c).trim());
   });
 
   return {
@@ -770,7 +820,7 @@ async function loadContactosFromBitrix() {
     "crm.contact.list",
     {
       filter: {
-        "!UF_CRM_1768059328177": false,
+        UF_CRM_1768059328177: VALID_CAMPAIGN_IDS,
         ...(!STATE.isAdmin && STATE.asesorId
           ? { ASSIGNED_BY_ID: STATE.asesorId }
           : {}),
@@ -802,6 +852,28 @@ async function loadContactosFromBitrix() {
   STATE.rows = contacts
     .map(mapContactFromBitrix)
     .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
+    // ===== DEBUG campañas =====
+const campaignStats = {};
+
+STATE.rows.forEach((r) => {
+  (r.campanaTexts || []).forEach((camp) => {
+    if (!campaignStats[camp]) {
+      campaignStats[camp] = 0;
+    }
+
+    campaignStats[camp]++;
+  });
+});
+
+console.group(" REGISTROS POR CAMPAÑA");
+
+Object.entries(campaignStats)
+  .sort((a, b) => b[1] - a[1])
+  .forEach(([camp, total]) => {
+    console.log(`${camp}: ${total}`);
+  });
+
+console.groupEnd();
 
   rebuildDisponiblesFromRows();
   renderTabla();
