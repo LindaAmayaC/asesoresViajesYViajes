@@ -21,6 +21,8 @@ let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
 
 let USER_MAP = {}; // ID -> Nombre completo
+let VALID_CAMPAIGNS = new Set();
+let VALID_CAMPAIGN_IDS = [];
 let HOME_READY = false;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -59,6 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     showGlobalLoader("Cargando campañas...");
     await loadCampanaEnum();
+    await loadValidCampaigns();
 
     showGlobalLoader("Preparando asesores...");
 
@@ -671,6 +674,49 @@ function loadCampanaEnum() {
   });
 }
 
+
+
+async function loadValidCampaigns() {
+  try {
+
+    const products = await bxCall(
+      "crm.product.list",
+      {
+        filter: {
+          CATALOG_ID: 24,
+          SECTION_ID: 114,
+          "PROPERTY_358": "Activa"
+        },
+        select: [
+          "ID",
+          "NAME"
+        ]
+      }
+    );
+
+    VALID_CAMPAIGNS = new Set(
+      (products || [])
+        .map(p => String(p.NAME || "").trim())
+        .filter(name => {
+          return !name.toLowerCase().startsWith("ms ");
+        })
+    );
+
+    VALID_CAMPAIGN_IDS = Object.entries(CAMPANA_ENUM)
+      .filter(([id, text]) =>
+        VALID_CAMPAIGNS.has(String(text).trim())
+      )
+      .map(([id]) => String(id));
+
+    console.log("Campañas activas:", VALID_CAMPAIGNS.size);
+    console.log("IDs campañas válidas:", VALID_CAMPAIGN_IDS.length);
+
+  } catch (e) {
+    console.error("Error cargando campañas activas:", e);
+  }
+}
+
+
 async function loadUsersMap() {
   try {
     const users = await bxList("user.get", {
@@ -719,9 +765,13 @@ function mapContactFromBitrix(c) {
   campanaTexts = campanaTexts.filter((c) => {
     if (!c) return false;
 
-    const val = c.toLowerCase().trim();
+    const val = String(c).trim().toLowerCase();
 
-    return val !== "-" && val !== "no seleccionado";
+    if (val === "-" || val === "no seleccionado") {
+      return false;
+    }
+
+    return VALID_CAMPAIGNS.has(String(c).trim());
   });
 
   return {
@@ -770,7 +820,7 @@ async function loadContactosFromBitrix() {
     "crm.contact.list",
     {
       filter: {
-        "!UF_CRM_1768059328177": false,
+        UF_CRM_1768059328177: VALID_CAMPAIGN_IDS,
         ...(!STATE.isAdmin && STATE.asesorId
           ? { ASSIGNED_BY_ID: STATE.asesorId }
           : {}),
@@ -802,6 +852,28 @@ async function loadContactosFromBitrix() {
   STATE.rows = contacts
     .map(mapContactFromBitrix)
     .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
+    // ===== DEBUG campañas =====
+const campaignStats = {};
+
+STATE.rows.forEach((r) => {
+  (r.campanaTexts || []).forEach((camp) => {
+    if (!campaignStats[camp]) {
+      campaignStats[camp] = 0;
+    }
+
+    campaignStats[camp]++;
+  });
+});
+
+console.group(" REGISTROS POR CAMPAÑA");
+
+Object.entries(campaignStats)
+  .sort((a, b) => b[1] - a[1])
+  .forEach(([camp, total]) => {
+    console.log(`${camp}: ${total}`);
+  });
+
+console.groupEnd();
 
   rebuildDisponiblesFromRows();
   renderTabla();
@@ -1438,7 +1510,7 @@ function renderTabla() {
 /*************************************************
  * 5) Detalle de contacto
  *************************************************/
-let CURRENT_CTX = { row: null };
+let CURRENT_CTX = { row: null, contactFull: null };
 
 
 function bxCall(method, params = {}) {
@@ -1595,7 +1667,8 @@ async function openDetalle(id) {
   qs("#dtl-person").value = row.nombre || "";
   qs("#dtl-email").value = row.email || "";
   qs("#dtl-phone").value = row.phone || "";
-fillMunicipioSelect(row.municipioId || "");
+  if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
+  fillMunicipioSelect(row.municipioId || "");
 
   fetchContactById(row.contactId)
     .then((contactFull) => {
@@ -1607,7 +1680,9 @@ fillMunicipioSelect(row.municipioId || "");
 
       qs("#dtl-email").value = row.email;
       qs("#dtl-phone").value = row.phone;
-fillAllContactDetailSelects(contactFull);
+      if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
+      CURRENT_CTX.contactFull = contactFull;
+      fillAllContactDetailSelects(contactFull);
     })
     .catch((e) => console.warn("No se pudo completar email/teléfono:", e));
 
@@ -1695,6 +1770,10 @@ async function renderCampaignCardsByContact(contactId) {
   const statusMap = loadCardStatusMap();
 
   const campanas = campanasTodas.filter((campanaTxt) => {
+    if (String(campanaTxt || "").trim().toLowerCase().startsWith("ms ")) {
+      return false;
+    }
+
     const key = getCardStatusKey(contactId, campanaTxt);
     const estado = statusMap[key];
 
@@ -2179,57 +2258,53 @@ qs("#md-guardar")?.addEventListener("click", async () => {
     return;
   }
 
+  // Historial de gestiones de la card.
+  // IMPORTANTE: este campo es TEXTO, no LISTA. Así los asesores pueden guardar
+  // sin permisos de administrador, porque solo se actualiza el contacto.
+  const historialFieldCode = "UF_CRM_1778554107651";
   const resumen = notas
-    ? `${campana} - ${estadoCliente} - ${notas} - ${fechaActual}`
-    : `${campana} - ${estadoCliente} - ${fechaActual}`;
+    ? `${fechaActual} | ${campana} | ${estadoCliente} | ${notas}`
+    : `${fechaActual} | ${campana} | ${estadoCliente}`;
 
   try {
     setModalGuardarState("loading");
     showModalLoader();
-    const fieldCode = "UF_CRM_1776206743575";
 
-    const userField = await getContactUserfieldByName(fieldCode);
+    const contactActual = await fetchContactById(contactId);
+    const historialActual = String(contactActual?.[historialFieldCode] || "").trim();
+    const historialFinal = historialActual
+      ? `${historialActual}
+${resumen}`
+      : resumen;
 
-    if (!userField?.ID) {
-      showToast(`No se encontró el campo ${fieldCode}.`, "error");
-      setModalGuardarState("idle");
-      hideModalLoader();
-      return;
-    }
-
-    let option = findEnumOptionByValue(userField.LIST || [], resumen);
-
-    if (!option) {
-      await updateContactUserfieldList(
-        userField.ID,
-        userField.LIST || [],
-        resumen,
-      );
-
-      const refreshedField = await getContactUserfieldByName(fieldCode);
-      option = findEnumOptionByValue(refreshedField?.LIST || [], resumen);
-    }
-
-    if (!option?.ID) {
-      showToast("No se pudo obtener el ID de la opción creada.", "error");
-      setModalGuardarState("idle");
-      hideModalLoader();
-      return;
-    }
-
-    await updateContactEnumValue(contactId, fieldCode, option.ID);
+    await bxCall("crm.contact.update", {
+      id: String(contactId),
+      fields: {
+        [historialFieldCode]: historialFinal,
+      },
+    });
 
     if (estadoRaw === "interesado") {
       const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
 
-      await createInteresadoDeal({
-        contactId,
-        campana,
-        estadoCliente,
-        notas,
-        asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
-        nombreCliente,
-      });
+      // La creación del negocio es complementaria. Si Bitrix bloquea la creación
+      // o la opción de lista del negocio, no debe perderse el historial guardado.
+      try {
+        await createInteresadoDeal({
+          contactId,
+          campana,
+          estadoCliente,
+          notas,
+          asesorId: STATE.asesorId || CURRENT_CTX?.row?.asesor || "",
+          nombreCliente,
+        });
+      } catch (dealError) {
+        console.warn("Historial guardado, pero no se pudo crear el negocio:", dealError);
+        showToast(
+          "Historial guardado. No se pudo crear el negocio asociado.",
+          "error",
+        );
+      }
     }
 
     const statusMap = loadCardStatusMap();
@@ -2255,10 +2330,10 @@ qs("#md-guardar")?.addEventListener("click", async () => {
       setModalGuardarState("idle");
     }, 500);
   } catch (e) {
-    console.error("Error guardando opción dinámica:", e);
+    console.error("Error guardando historial de la card:", e);
     setModalGuardarState("idle");
     hideModalLoader();
-    showToast("No se pudo guardar la opción dinámica en la lista.", "error");
+    showToast("No se pudo guardar el historial de la card.", "error");
   }
 });
 
@@ -2324,6 +2399,7 @@ async function saveContactFromDetalle() {
   const email = qs("#dtl-email")?.value.trim() || "";
   const phone = qs("#dtl-phone")?.value.trim() || "";
   const municipioId = qs("#dtl-place")?.value || "";
+  const comments = qs("#dtl-comments")?.value.trim() || "";
   const placeTxt = MUNICIPIO_ENUM[municipioId] || "";
   let viajesFuturosIds = [];
   let tipoContactoIds = [];
@@ -2346,6 +2422,14 @@ async function saveContactFromDetalle() {
     viajesRealizadosIds = await getContactDetailFieldValues("viajesRealizados");
 
     const contact = await fetchContactById(row.contactId);
+
+    // COMMENTS: no mostramos historial en pantalla, pero sí lo conservamos en Bitrix.
+    // Formato solicitado: fecha sin hora + comentario.
+    const comentariosActuales = contact?.COMMENTS || "";
+    const fechaComentario = new Date().toLocaleDateString("es-CO");
+    const commentsFinal = comments
+      ? `${comentariosActuales}\n${fechaComentario} - ${comments}`.trim()
+      : comentariosActuales;
 
     const emails = Array.isArray(contact?.EMAIL) ? contact.EMAIL : [];
     const phones = Array.isArray(contact?.PHONE) ? contact.PHONE : [];
@@ -2409,6 +2493,7 @@ async function saveContactFromDetalle() {
     const fields = {
       NAME,
       LAST_NAME,
+      COMMENTS: commentsFinal,
       UF_CRM_1722975246: municipioId || null,
       UF_CRM_1723205267: formatContactDetailValueForBitrix(
         "UF_CRM_1723205267",
@@ -2455,6 +2540,8 @@ async function saveContactFromDetalle() {
         row.viajesFuturosIds = viajesFuturosIds;
         row.tipoContactoIds = tipoContactoIds;
         row.viajesRealizadosIds = viajesRealizadosIds;
+        row.comments = comments;
+        if (qs("#dtl-comments")) qs("#dtl-comments").value = "";
 
         qs("#dtl-nombre").textContent = row.nombre || "Contacto";
         renderTabla();
