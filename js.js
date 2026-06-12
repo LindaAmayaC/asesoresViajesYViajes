@@ -17,7 +17,12 @@ let STATE = {
   asesoresDisponibles: [],
 };
 const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
-let SHOW_ALL_CAMPAIGNS = false;
+// Campo del contacto en Bitrix donde se guarda el estado de las cards
+// como JSON { "<nombre campaña>": "Completado" | "Seguimiento" }.
+// Las campañas sin entrada se renderizan como "Por completar".
+// Visible para asesores y admin.
+const CARD_STATUS_FIELD_CODE = "UF_CRM_1781225990";
+let SHOW_ALL_CAMPAIGNS = true;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
 
 let USER_MAP = {}; // ID -> Nombre completo
@@ -115,6 +120,38 @@ function loadCardStatusMap() {
 }
 function saveCardStatusMap(map) {
   localStorage.setItem(LS_CARD_STATUS_KEY, JSON.stringify(map || {}));
+}
+
+// Lee el campo CARD_STATUS_FIELD_CODE del contacto y devuelve
+// un objeto { "<campaña original>": "Completado" | "Seguimiento" }.
+// Conserva el casing original del nombre de la campaña.
+function parseContactCardStatus(contact) {
+  try {
+    const raw = String(contact?.[CARD_STATUS_FIELD_CODE] || "").trim();
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// Mergea en localStorage los estados que vienen del campo de Bitrix
+// para el contacto dado. Convierte cada campaña a la clave lowercased
+// que usa el resto de la app (getCardStatusKey).
+function hydrateCardStatusMapFromContact(contact) {
+  const contactId = contact?.ID;
+  if (!contactId) return;
+
+  const perCampana = parseContactCardStatus(contact);
+  const globalMap = loadCardStatusMap();
+
+  Object.entries(perCampana).forEach(([campana, estado]) => {
+    const key = getCardStatusKey(contactId, campana);
+    globalMap[key] = estado;
+  });
+
+  saveCardStatusMap(globalMap);
 }
 
 function getCardStatusKey(contactId, campana) {
@@ -1746,6 +1783,7 @@ async function renderCampaignCardsByContact(contactId) {
   try {
     contact = await fetchContactById(contactId);
     await loadCampanaEnum();
+    hydrateCardStatusMapFromContact(contact);
   } catch (e) {
     console.error("Error consultando contacto:", e);
     wrap.innerHTML = `<div class="text-sm text-red-500">No se pudieron cargar las campañas activas.</div>`;
@@ -2126,28 +2164,21 @@ function updateDealUserfieldList(fieldId, currentList, newValue) {
   });
 }
 
-async function ensureDealEnumOption(fieldCode, valueText) {
+// Solo busca el ID de la opción existente. No la crea (los asesores no tienen
+// permisos de admin para modificar la lista del userfield del deal).
+async function findDealEnumOptionId(fieldCode, valueText) {
   const userField = await getDealUserfieldByName(fieldCode);
 
   if (!userField?.ID) {
     throw new Error(`No se encontró el campo deal ${fieldCode}.`);
   }
 
-  let option = findEnumOptionByValue(userField.LIST || [], valueText);
-
-  if (!option) {
-    await updateDealUserfieldList(
-      userField.ID,
-      userField.LIST || [],
-      valueText,
-    );
-
-    const refreshedField = await getDealUserfieldByName(fieldCode);
-    option = findEnumOptionByValue(refreshedField?.LIST || [], valueText);
-  }
+  const option = findEnumOptionByValue(userField.LIST || [], valueText);
 
   if (!option?.ID) {
-    throw new Error(`No se pudo obtener el ID de la opción en ${fieldCode}.`);
+    throw new Error(
+      `La campaña "${valueText}" no existe en el campo ${fieldCode}. Pide al administrador que la agregue al embudo.`,
+    );
   }
 
   return option.ID;
@@ -2178,7 +2209,7 @@ async function createInteresadoDeal({
   const dealEstadoField = "UF_CRM_1764401898591";
   const dealNotasField = "UF_CRM_68911F4662EF3";
 
-  const campanaOptionId = await ensureDealEnumOption(dealCampanaField, campana);
+  const campanaOptionId = await findDealEnumOptionId(dealCampanaField, campana);
 
   const title =
     `${String(nombreCliente || "").trim()} - ${String(campana || "").trim()}`.trim();
@@ -2277,12 +2308,30 @@ qs("#md-guardar")?.addEventListener("click", async () => {
 ${resumen}`
       : resumen;
 
+    // Estado de la card (visible para todos los asesores y el admin).
+    // Mapeo: Interesado / No interesado → "Completado"; Inseguro → "Seguimiento".
+    const cardEstadoBitrix =
+      estadoRaw === "inseguro"
+        ? "Seguimiento"
+        : estadoRaw === "interesado" || estadoRaw === "no_interesado"
+          ? "Completado"
+          : "";
+
+    const cardStatusBitrix = parseContactCardStatus(contactActual);
+    if (cardEstadoBitrix && campana) {
+      cardStatusBitrix[campana] = cardEstadoBitrix;
+    }
+
     await bxCall("crm.contact.update", {
       id: String(contactId),
       fields: {
         [historialFieldCode]: historialFinal,
+        [CARD_STATUS_FIELD_CODE]: JSON.stringify(cardStatusBitrix),
       },
     });
+
+    let dealFailed = false;
+    let dealErrorMsg = "";
 
     if (estadoRaw === "interesado") {
       const nombreCliente = (CURRENT_CTX?.row?.nombre || "").trim();
@@ -2299,10 +2348,15 @@ ${resumen}`
           nombreCliente,
         });
       } catch (dealError) {
-        console.warn("Historial guardado, pero no se pudo crear el negocio:", dealError);
-        showToast(
-          "Historial guardado. No se pudo crear el negocio asociado.",
-          "error",
+        dealFailed = true;
+        dealErrorMsg =
+          dealError?.ex?.error_description ||
+          dealError?.error_description ||
+          dealError?.message ||
+          String(dealError);
+        console.warn(
+          "Historial guardado, pero no se pudo crear la negociación:",
+          dealError,
         );
       }
     }
@@ -2323,7 +2377,15 @@ ${resumen}`
     await renderCampaignCardsByContact(contactId);
     setModalGuardarState("success");
     hideModalLoader();
-    showToast("Guardado correctamente.");
+
+    if (dealFailed) {
+      showToast(
+        `Historial guardado, pero la negociación no se creó: ${dealErrorMsg}`,
+        "error",
+      );
+    } else {
+      showToast("Guardado correctamente.");
+    }
 
     setTimeout(() => {
       closeCampanaModal();
