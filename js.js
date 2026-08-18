@@ -22,12 +22,19 @@ const LS_CARD_STATUS_KEY = "vyv_card_status_v1";
 // Las campañas sin entrada se renderizan como "Por completar".
 // Visible para asesores y admin.
 const CARD_STATUS_FIELD_CODE = "UF_CRM_1781225990";
-let SHOW_ALL_CAMPAIGNS = true;
+// Campo del contacto que vincula productos del catálogo comercial (CATALOG_ID 24).
+// Guarda IDs de producto directamente, no textos ni opciones de enum.
+const CAMPANA_COMERCIAL_FIELD_CODE = "UF_CRM_1786598094";
+// Por defecto ocultamos campañas completadas. El toggle en la UI las muestra.
+let SHOW_ALL_CAMPAIGNS = false;
 // === TEMP: desactivar login inicial (mostrar HOME directo) ===
 
 let USER_MAP = {}; // ID -> Nombre completo
 let VALID_CAMPAIGNS = new Set();
 let VALID_CAMPAIGN_IDS = [];
+// Cache de productos comerciales activos indexados por ID de producto.
+// { "2420": { ID, NAME, PROPERTY_356, PROPERTY_358, PROPERTY_360 }, ... }
+let VALID_CAMPAIGN_PRODUCTS = {};
 let HOME_READY = false;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -136,9 +143,26 @@ function parseContactCardStatus(contact) {
   }
 }
 
+// Nombres de producto pueden tener sufijo " (fecha)", ej "Cáucaso (11-08-2026)".
+// Estados guardados antes del refactor usaban solo el nombre base ("Cáucaso"),
+// así que al buscar comparamos primero exacto y luego contra el nombre base.
+function stripCampaignSuffix(name) {
+  return String(name || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
+function getCardStatusFromMap(map, campanaTxt) {
+  if (!map || !campanaTxt) return undefined;
+  if (map[campanaTxt] !== undefined) return map[campanaTxt];
+  const base = stripCampaignSuffix(campanaTxt);
+  if (base && base !== campanaTxt && map[base] !== undefined) return map[base];
+  return undefined;
+}
+
 // Mergea en localStorage los estados que vienen del campo de Bitrix
 // para el contacto dado. Convierte cada campaña a la clave lowercased
-// que usa el resto de la app (getCardStatusKey).
+// que usa el resto de la app (getCardStatusKey). Además guarda una clave
+// con el nombre base (sin sufijo " (fecha)") para tolerar renombres del
+// producto sin perder el estado histórico.
 function hydrateCardStatusMapFromContact(contact) {
   const contactId = contact?.ID;
   if (!contactId) return;
@@ -149,6 +173,12 @@ function hydrateCardStatusMapFromContact(contact) {
   Object.entries(perCampana).forEach(([campana, estado]) => {
     const key = getCardStatusKey(contactId, campana);
     globalMap[key] = estado;
+
+    const base = stripCampaignSuffix(campana);
+    if (base && base !== campana) {
+      const baseKey = getCardStatusKey(contactId, base);
+      globalMap[baseKey] = estado;
+    }
   });
 
   saveCardStatusMap(globalMap);
@@ -570,16 +600,38 @@ function renderContactDetailMultiSelect(
       : selectedOptions[0]?.textContent || "Seleccionado"
     : placeholder;
 
-  const optionsHtml = [...sel.options]
-    .map((opt) => {
+  // Ordena: opciones seleccionadas primero (alfabético), luego no seleccionadas
+  // (alfabético). "Otra opción..." queda siempre al final.
+  const sortedOptions = [...sel.options].sort((a, b) => {
+    const aOther = a.value === CONTACT_DETAIL_OTHER_VALUE;
+    const bOther = b.value === CONTACT_DETAIL_OTHER_VALUE;
+    if (aOther !== bOther) return aOther ? 1 : -1;
+    if (a.selected !== b.selected) return a.selected ? -1 : 1;
+    return String(a.textContent || "").localeCompare(String(b.textContent || ""));
+  });
+
+  const optionsHtml = sortedOptions
+    .map((opt, idx, arr) => {
       const isOther = opt.value === CONTACT_DETAIL_OTHER_VALUE;
       const checked = opt.selected ? "checked" : "";
       const labelClass = isOther
         ? "font-semibold text-[#1d73ea]"
         : "text-slate-700";
 
+      // Divider entre seleccionadas y no seleccionadas (solo si hay ambos grupos)
+      const prev = arr[idx - 1];
+      const showDivider =
+        prev &&
+        prev.selected &&
+        !opt.selected &&
+        opt.value !== CONTACT_DETAIL_OTHER_VALUE;
+      const dividerHtml = showDivider
+        ? `<div class="my-1 border-t border-slate-100"></div>`
+        : "";
+
       return `
-        <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition">
+        ${dividerHtml}
+        <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition ${opt.selected ? "bg-[#1d73ea]/5" : ""}">
           <input
             type="${isMultiple ? "checkbox" : "radio"}"
             name="${escapeHtml(sel.id || "contact-detail-single")}"
@@ -593,13 +645,20 @@ function renderContactDetailMultiSelect(
     })
     .join("");
 
+  // Tooltip nativo con la lista de seleccionados al hacer hover.
+  const selectedNamesForTitle = selectedOptions
+    .map((o) => o.textContent || o.value)
+    .filter(Boolean)
+    .join(" · ");
+
   wrapper.innerHTML = `
     <button type="button"
-      class="w-full h-[45px] px-3 rounded-xl border border-gray-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-[#1d73ea]/20 outline-none"
-      data-cdms-trigger>
-      <span class="truncate ${selectedOptions.length ? "text-slate-900 font-normal" : "text-slate-400 font-normal"}">${escapeHtml(label)}</span>
-      <span class="inline-flex shrink-0 items-center justify-center text-slate-900 transition" data-cdms-chevron>
-        <i class="fa-solid fa-chevron-down text-base"></i>
+      class="w-full h-9 px-2.5 rounded-md border border-transparent bg-slate-50 text-sm text-slate-800 hover:bg-slate-100 focus:bg-white focus:border-[#1d73ea] focus:ring-1 focus:ring-[#1d73ea]/25 outline-none transition flex items-center justify-between gap-2"
+      data-cdms-trigger
+      title="${escapeHtml(selectedNamesForTitle)}">
+      <span class="truncate ${selectedOptions.length ? "text-slate-800" : "text-slate-400"}">${escapeHtml(label)}</span>
+      <span class="inline-flex shrink-0 items-center justify-center text-slate-500 transition" data-cdms-chevron>
+        <i class="fa-solid fa-chevron-down text-xs"></i>
       </span>
     </button>
 
@@ -726,27 +785,51 @@ async function loadValidCampaigns() {
         },
         select: [
           "ID",
-          "NAME"
+          "NAME",
+          "CATALOG_ID",
+          "SECTION_ID",
+          "PROPERTY_356",
+          "PROPERTY_358",
+          "PROPERTY_360"
         ]
       }
     );
 
-    VALID_CAMPAIGNS = new Set(
-      (products || [])
-        .map(p => String(p.NAME || "").trim())
-        .filter(name => {
-          return !name.toLowerCase().startsWith("ms ");
-        })
+    // Filtro defensivo en JS. Bitrix a veces ignora filtros por SECTION_ID
+    // y por propiedades custom en crm.product.list, así que confirmamos aquí
+    // que solo entren productos de la sección 114 (comercial) con estado
+    // "Activa" en PROPERTY_358.
+    const productsRaw = products || [];
+    const filtered = productsRaw.filter((p) => {
+      const sectionId = String(p.SECTION_ID || "").trim();
+      const estado = getBitrixPropValue(p.PROPERTY_358);
+      const isCommercial = sectionId === "114";
+      const isActiva = String(estado).trim().toLowerCase() === "activa";
+      return isCommercial && isActiva;
+    });
+
+    console.log(
+      "Productos crudos:", productsRaw.length,
+      "→ tras filtro comercial+activa:", filtered.length
     );
 
-    VALID_CAMPAIGN_IDS = Object.entries(CAMPANA_ENUM)
-      .filter(([id, text]) =>
-        VALID_CAMPAIGNS.has(String(text).trim())
-      )
-      .map(([id]) => String(id));
+    VALID_CAMPAIGN_PRODUCTS = {};
+    filtered.forEach(p => {
+      const id = String(p.ID || "").trim();
+      if (!id) return;
+      VALID_CAMPAIGN_PRODUCTS[id] = p;
+    });
 
-    console.log("Campañas activas:", VALID_CAMPAIGNS.size);
-    console.log("IDs campañas válidas:", VALID_CAMPAIGN_IDS.length);
+    VALID_CAMPAIGNS = new Set(
+      Object.values(VALID_CAMPAIGN_PRODUCTS)
+        .map(p => String(p.NAME || "").trim())
+        .filter(Boolean)
+    );
+
+    VALID_CAMPAIGN_IDS = Object.keys(VALID_CAMPAIGN_PRODUCTS);
+
+    console.log("Productos comerciales activos:", VALID_CAMPAIGN_IDS.length);
+
 
   } catch (e) {
     console.error("Error cargando campañas activas:", e);
@@ -789,6 +872,16 @@ function campanaIdsToTexts(values) {
     .filter(Boolean);
 }
 
+// Convierte IDs de producto del catálogo comercial a nombres, usando el cache
+// VALID_CAMPAIGN_PRODUCTS. IDs no vigentes (producto inactivo o inexistente)
+// se descartan.
+function campanaProductIdsToTexts(values) {
+  return normalizeMultiValue(values)
+    .map((id) => VALID_CAMPAIGN_PRODUCTS[String(id)]?.NAME || "")
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+}
+
 function mapContactFromBitrix(c) {
   const id = String(c.ID || "");
   const asesorId = String(c.ASSIGNED_BY_ID || "");
@@ -796,20 +889,22 @@ function mapContactFromBitrix(c) {
     [c.NAME, c.LAST_NAME].filter(Boolean).join(" ") || `Contacto #${id}`;
 
   const municipioId = c.UF_CRM_1722975246 || "";
-  const campanaIds = normalizeMultiValue(c.UF_CRM_1768059328177);
-  let campanaTexts = campanaIdsToTexts(campanaIds);
 
-  campanaTexts = campanaTexts.filter((c) => {
-    if (!c) return false;
+  // Nueva fuente: campo del contacto que vincula productos del catálogo
+  // comercial. Guarda IDs de producto directamente.
+  const campanaProductIds = normalizeMultiValue(c[CAMPANA_COMERCIAL_FIELD_CODE]);
+  const campanaTexts = campanaProductIdsToTexts(campanaProductIds);
 
-    const val = String(c).trim().toLowerCase();
+  // Marca true cuando el contacto tiene al menos una campaña y TODAS están
+  // "Completado". Se usa para ocultar de la lista principal a los contactos
+  // que ya no requieren gestión.
+  const cardStatus = parseContactCardStatus(c);
+  const todasCompletadas =
+    campanaTexts.length > 0 &&
+    campanaTexts.every(
+      (txt) => getCardStatusFromMap(cardStatus, txt) === "Completado",
+    );
 
-    if (val === "-" || val === "no seleccionado") {
-      return false;
-    }
-
-    return VALID_CAMPAIGNS.has(String(c).trim());
-  });
 
   return {
     id,
@@ -821,10 +916,12 @@ function mapContactFromBitrix(c) {
     phone: "",
     place: MUNICIPIO_ENUM[String(municipioId)] || "",
     municipioId,
-    campanaIds,
+    campanaIds: campanaProductIds,
     campanaTexts,
     campanaFila: campanaTexts[0] || "-",
     estadoFila: campanaTexts.length ? "Activo" : "Sin campañas",
+    todasCompletadas,
+    cardStatus,
   };
 }
 
@@ -857,7 +954,7 @@ async function loadContactosFromBitrix() {
     "crm.contact.list",
     {
       filter: {
-        UF_CRM_1768059328177: VALID_CAMPAIGN_IDS,
+        [CAMPANA_COMERCIAL_FIELD_CODE]: VALID_CAMPAIGN_IDS,
         ...(!STATE.isAdmin && STATE.asesorId
           ? { ASSIGNED_BY_ID: STATE.asesorId }
           : {}),
@@ -867,7 +964,8 @@ async function loadContactosFromBitrix() {
         "NAME",
         "LAST_NAME",
         "ASSIGNED_BY_ID",
-        "UF_CRM_1768059328177",
+        CAMPANA_COMERCIAL_FIELD_CODE,
+        CARD_STATUS_FIELD_CODE,
       ],
     },
     {
@@ -879,7 +977,9 @@ async function loadContactosFromBitrix() {
         partialContacts = partialContacts.concat(chunk);
 
         if (pages % 3 === 0) {
-          STATE.rows = partialContacts.map(mapContactFromBitrix);
+          STATE.rows = partialContacts
+            .map(mapContactFromBitrix)
+            .filter((c) => !c.todasCompletadas);
           rebuildDisponiblesFromRows();
           renderTabla();
         }
@@ -888,7 +988,9 @@ async function loadContactosFromBitrix() {
   );
   STATE.rows = contacts
     .map(mapContactFromBitrix)
-    .filter((c) => c.campanaTexts && c.campanaTexts.length > 0);
+    .filter((c) => c.campanaTexts && c.campanaTexts.length > 0)
+    .filter((c) => !c.todasCompletadas);
+
     // ===== DEBUG campañas =====
 const campaignStats = {};
 
@@ -1162,6 +1264,18 @@ function initMultiSelect(root, cfg = {}) {
 
   function updateLabel() {
     const count = selected.size;
+
+    // Lista de nombres seleccionados para el tooltip al hacer hover.
+    const selectedTexts = rowEls
+      .filter((r) => selected.has(r.dataset.value))
+      .map((r) => r.querySelector("span")?.textContent || r.dataset.value)
+      .filter(Boolean);
+    if (trigger) {
+      trigger.title = selectedTexts.length
+        ? selectedTexts.join(" · ")
+        : "";
+    }
+
     if (!count) {
       labelEl.textContent = placeholder;
       labelEl.classList.add("text-slate-500");
@@ -1170,10 +1284,7 @@ function initMultiSelect(root, cfg = {}) {
     }
 
     if (count === 1) {
-      const only = [...selected][0];
-      const found = rowEls.find((r) => r.dataset.value === String(only));
-      const txt = found ? found.querySelector("span")?.textContent : null;
-      labelEl.textContent = txt || "1 seleccionado";
+      labelEl.textContent = selectedTexts[0] || "1 seleccionado";
     } else {
       labelEl.textContent = `${count} seleccionados`;
     }
@@ -1181,7 +1292,22 @@ function initMultiSelect(root, cfg = {}) {
     labelEl.classList.add("text-slate-700");
   }
 
+  // Reordena el DOM para que las opciones seleccionadas aparezcan primero,
+  // manteniendo el orden alfabético dentro de cada grupo.
+  function sortSelectedFirst() {
+    const compareText = (a, b) =>
+      (a.dataset.text || "").localeCompare(b.dataset.text || "");
+    const sel = rowEls
+      .filter((r) => selected.has(r.dataset.value))
+      .sort(compareText);
+    const unsel = rowEls
+      .filter((r) => !selected.has(r.dataset.value))
+      .sort(compareText);
+    [...sel, ...unsel].forEach((row) => optWrap.appendChild(row));
+  }
+
   function open() {
+    sortSelectedFirst();
     panel.classList.remove("hidden");
     if (chevron) chevron.classList.add("rotate-180");
     if (search) {
@@ -1352,8 +1478,89 @@ function initHome() {
     });
   }
 
+  const btnStats = qs("#btn-stats");
+  const btnStatsClose = qs("#btn-stats-close");
+  const btnStatsClose2 = qs("#btn-stats-close-2");
+  const statsModal = qs("#stats-modal");
+  if (btnStats) btnStats.addEventListener("click", openStatsModal);
+  if (btnStatsClose) btnStatsClose.addEventListener("click", closeStatsModal);
+  if (btnStatsClose2) btnStatsClose2.addEventListener("click", closeStatsModal);
+  if (statsModal) {
+    statsModal.addEventListener("click", (e) => {
+      if (e.target === statsModal) closeStatsModal();
+    });
+  }
+
   updateFilterSummary();
   renderTabla();
+}
+
+function computeCampaignPendings() {
+  // { campana: { pendientes, total } }
+  const stats = {};
+  (STATE.rows || []).forEach((r) => {
+    const status = r.cardStatus || {};
+    (r.campanaTexts || []).forEach((camp) => {
+      if (!stats[camp]) stats[camp] = { pendientes: 0, total: 0 };
+      stats[camp].total++;
+      const estado = getCardStatusFromMap(status, camp);
+      if (estado !== "Completado") stats[camp].pendientes++;
+    });
+  });
+  return stats;
+}
+
+function openStatsModal() {
+  const modal = qs("#stats-modal");
+  const rows = qs("#stats-modal-rows");
+  const footer = qs("#stats-modal-footer");
+  const subtitle = qs("#stats-modal-subtitle");
+  if (!modal || !rows) return;
+
+  const stats = computeCampaignPendings();
+  const entries = Object.entries(stats).sort(
+    (a, b) => b[1].pendientes - a[1].pendientes || b[1].total - a[1].total,
+  );
+
+  const totalPend = entries.reduce((acc, [, s]) => acc + s.pendientes, 0);
+  const totalCamp = entries.length;
+
+  rows.innerHTML = entries.length
+    ? entries
+        .map(([camp, s]) => {
+          const badge =
+            s.pendientes === 0
+              ? `<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">✓ 0</span>`
+              : `<span class="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px] font-semibold">${s.pendientes}</span>`;
+          return `
+            <tr class="hover:bg-slate-50/60">
+              <td class="py-2.5 pr-3 text-slate-800">${escapeHtml(camp)}</td>
+              <td class="py-2.5 pl-3 text-right">${badge}</td>
+              <td class="py-2.5 pl-3 text-right text-slate-500 tabular-nums">${s.total}</td>
+            </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="3" class="py-6 text-center text-slate-400">No hay campañas visibles con los filtros actuales.</td></tr>`;
+
+  if (footer) {
+    footer.textContent = entries.length
+      ? `${totalCamp} campañas · ${totalPend} pendientes en total`
+      : "Sin datos";
+  }
+  if (subtitle) {
+    subtitle.textContent =
+      "Se basa en los contactos visibles con los filtros actuales.";
+  }
+
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
+
+function closeStatsModal() {
+  const modal = qs("#stats-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
 }
 
 function openDrawer() {
@@ -1725,12 +1932,35 @@ async function openDetalle(id) {
 
   const btnToggle = document.getElementById("btn-toggle-campanas");
   if (btnToggle) {
+    const btnToggleText = document.getElementById("btn-toggle-text");
+    const toggleTrack = document.getElementById("toggle-track");
+    const toggleDot = document.getElementById("toggle-dot");
+
+    // Estado semántico: "hideCompleted" ON cuando estamos ocultando completadas.
+    // SHOW_ALL_CAMPAIGNS = false ↔ hideCompleted = true.
+    const refreshToggleLabel = () => {
+      const hideCompleted = !SHOW_ALL_CAMPAIGNS;
+      if (btnToggleText) {
+        btnToggleText.textContent = hideCompleted
+          ? "Ocultar completadas"
+          : "Mostrar completadas";
+      }
+      if (toggleTrack) {
+        toggleTrack.className = hideCompleted
+          ? "relative inline-flex h-5 w-9 items-center rounded-full bg-[#1d73ea] transition-colors"
+          : "relative inline-flex h-5 w-9 items-center rounded-full bg-slate-300 transition-colors";
+      }
+      if (toggleDot) {
+        toggleDot.className = hideCompleted
+          ? "inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-[18px] transition-transform"
+          : "inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-[2px] transition-transform";
+      }
+      btnToggle.setAttribute("aria-checked", hideCompleted ? "true" : "false");
+    };
+    refreshToggleLabel();
     btnToggle.onclick = () => {
       SHOW_ALL_CAMPAIGNS = !SHOW_ALL_CAMPAIGNS;
-      btnToggle.textContent = SHOW_ALL_CAMPAIGNS
-        ? "Ocultar campañas completadas"
-        : "Ver todas las campañas";
-
+      refreshToggleLabel();
       renderCampaignCardsByContact(row.contactId);
     };
   }
@@ -1804,53 +2034,44 @@ async function renderCampaignCardsByContact(contactId) {
     return;
   }
 
-  const campanasTodas = campanaIdsToTexts(contact.UF_CRM_1768059328177);
+  // Nueva fuente: IDs de producto del campo comercial. Los productos ya
+  // vienen precargados en VALID_CAMPAIGN_PRODUCTS (solo activos), así que
+  // no hace falta un fetch por card.
+  const productIds = normalizeMultiValue(contact[CAMPANA_COMERCIAL_FIELD_CODE]);
   const statusMap = loadCardStatusMap();
 
-  const campanas = campanasTodas.filter((campanaTxt) => {
-    if (String(campanaTxt || "").trim().toLowerCase().startsWith("ms ")) {
-      return false;
-    }
+  const productosCards = productIds
+    .map((pid) => VALID_CAMPAIGN_PRODUCTS[String(pid)])
+    .filter(Boolean)
+    .map((producto) => ({
+      campanaTxt: String(producto.NAME || "").trim(),
+      producto,
+    }))
+    .filter(({ campanaTxt }) => {
+      const key = getCardStatusKey(contactId, campanaTxt);
+      const baseKey = getCardStatusKey(contactId, stripCampaignSuffix(campanaTxt));
+      const estado = statusMap[key] || statusMap[baseKey];
+      if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") return false;
+      return true;
+    });
 
-    const key = getCardStatusKey(contactId, campanaTxt);
-    const estado = statusMap[key];
-
-    if (!SHOW_ALL_CAMPAIGNS && estado === "Completado") {
-      return false;
-    }
-
-    return true;
-  });
-
-  if (!campanas.length) {
+  if (!productosCards.length) {
     wrap.innerHTML = `<div class="text-sm text-slate-500">Este contacto no tiene campañas activas.</div>`;
     return;
   }
 
-  wrap.innerHTML = `<div class="text-sm text-slate-500">Consultando datos de campañas...</div>`;
-
-  const productos = await Promise.all(
-    campanas.map(async (campanaTxt) => {
-      try {
-        const producto = await fetchProductoCampanaByNombre(campanaTxt);
-        return { campanaTxt, producto };
-      } catch (e) {
-        console.error("Error consultando producto de campaña:", campanaTxt, e);
-        return { campanaTxt, producto: null };
-      }
-    }),
-  );
-
   wrap.innerHTML = "";
 
-  productos.forEach(({ campanaTxt, producto }) => {
+  productosCards.forEach(({ campanaTxt, producto }) => {
     const fechaInicioRaw = getBitrixPropValue(producto?.PROPERTY_360);
     const fechaFinRaw = getBitrixPropValue(producto?.PROPERTY_356);
     const estadoRaw = getBitrixPropValue(producto?.PROPERTY_358);
 
     const estadoCampana = estadoRaw || "Sin estado";
     const cardKey = getCardStatusKey(contactId, campanaTxt);
-    const estadoSeguimiento = statusMap[cardKey] || "Por completar";
+    const baseCardKey = getCardStatusKey(contactId, stripCampaignSuffix(campanaTxt));
+    const estadoSeguimiento =
+      statusMap[cardKey] || statusMap[baseCardKey] || "Por completar";
 
     const card = document.createElement("div");
     card.className =
@@ -2197,6 +2418,34 @@ function createDeal(fields) {
   });
 }
 
+function updateDealFields(dealId, fields) {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod(
+      "crm.deal.update",
+      { id: String(dealId), fields },
+      (result) => {
+        if (result.error()) {
+          reject(result.error());
+          return;
+        }
+        resolve(result.data());
+      },
+    );
+  });
+}
+
+function fetchDealById(dealId) {
+  return new Promise((resolve, reject) => {
+    BX24.callMethod("crm.deal.get", { id: String(dealId) }, (result) => {
+      if (result.error()) {
+        reject(result.error());
+        return;
+      }
+      resolve(result.data());
+    });
+  });
+}
+
 async function createInteresadoDeal({
   contactId,
   campana,
@@ -2211,6 +2460,23 @@ async function createInteresadoDeal({
 
   const campanaOptionId = await findDealEnumOptionId(dealCampanaField, campana);
 
+  // El campo de estado puede estar configurado como lista (enumeration) o como
+  // texto. Si es lista, Bitrix ignora silenciosamente cualquier valor que no sea
+  // un ID de opción válido, por eso resolvemos el ID cuando aplica.
+  let estadoValue = estadoCliente;
+  try {
+    const estadoField = await getDealUserfieldByName(dealEstadoField);
+    if (estadoField?.USER_TYPE_ID === "enumeration") {
+      const option = findEnumOptionByValue(estadoField.LIST || [], estadoCliente);
+      if (option?.ID) {
+        estadoValue = option.ID;
+      }
+    }
+  } catch (_) {
+    // Si no se puede consultar el campo, dejamos el string original y que
+    // Bitrix decida. No bloqueamos la creación del negocio por esto.
+  }
+
   const title =
     `${String(nombreCliente || "").trim()} - ${String(campana || "").trim()}`.trim();
 
@@ -2220,7 +2486,7 @@ async function createInteresadoDeal({
     STAGE_ID: "C10:NEW",
     CONTACT_ID: String(contactId),
     ASSIGNED_BY_ID: asesorId ? Number(asesorId) : undefined,
-    [dealEstadoField]: estadoCliente,
+    [dealEstadoField]: estadoValue,
     [dealNotasField]: notas,
     [dealCampanaField]: campanaOptionId,
   };
@@ -2230,7 +2496,34 @@ async function createInteresadoDeal({
     if (fields[key] === undefined) delete fields[key];
   });
 
-  return await createDeal(fields);
+  console.log("[deal.add] payload:", fields);
+  const dealId = await createDeal(fields);
+  console.log("[deal.add] creado dealId:", dealId);
+
+  // Workaround: Bitrix a veces dropea silenciosamente campos UF en el add
+  // cuando la visibilidad del campo está restringida a otro embudo. Volvemos
+  // a forzar el estado con un update y verificamos qué quedó realmente.
+  try {
+    const dealCreado = await fetchDealById(dealId);
+    const estadoActual = dealCreado?.[dealEstadoField];
+    console.log(`[deal.add] ${dealEstadoField} despues del add:`, estadoActual);
+
+    if (!estadoActual || String(estadoActual).trim() === "") {
+      console.warn(
+        `[deal.add] ${dealEstadoField} quedó vacío tras el add. Reintentando con update...`,
+      );
+      await updateDealFields(dealId, { [dealEstadoField]: estadoValue });
+      const dealCheck = await fetchDealById(dealId);
+      console.log(
+        `[deal.add] ${dealEstadoField} despues del update:`,
+        dealCheck?.[dealEstadoField],
+      );
+    }
+  } catch (err) {
+    console.warn("[deal.add] no se pudo verificar/reintentar estado:", err);
+  }
+
+  return dealId;
 }
 async function updateContactEnumValue(contactId, fieldCode, enumId) {
   const contact = await fetchContactById(contactId);
